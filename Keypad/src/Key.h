@@ -29,15 +29,10 @@
 ||
 */
 
-#ifndef KEY_H
-#define KEY_H
+#ifndef Keypadlib_KEY_H_
+#define Keypadlib_KEY_H_
 
-// Arduino versioning.
-#if defined(ARDUINO) && ARDUINO >= 100
-#include "Arduino.h"	// for digitalRead, digitalWrite, etc
-#else
-#include "WProgram.h"
-#endif
+#include <Arduino.h>
 
 #define OPEN LOW
 #define CLOSED HIGH
