@@ -7,19 +7,24 @@
 #endif
 #include <SPI.h>
 #include <math.h>
+#include <stdio.h>
 
 #include "Nokia_LCD.h"
 #include "Nokia_LCD_Fonts.h"
 
 namespace {
-const uint8_t kDisplay_max_width = 84;
-const uint8_t kDisplay_max_height = 48;
+// Instantiate the default font
+const LcdFont nokiaFont{
+    [](char c) { return Nokia_LCD_Fonts::kDefault_font[c - 0x20]; },
+    Nokia_LCD_Fonts::kColumns_per_character, Nokia_LCD_Fonts::hSpace, 1};
+
 // Each row is made of 8-bit columns
 const unsigned int kTotal_rows =
-    kDisplay_max_height / Nokia_LCD_Fonts::kRows_per_character;
-const unsigned int kTotal_columns = kDisplay_max_width;
-const unsigned int kTotal_bits = kDisplay_max_width * kTotal_rows;
+    nokia_lcd::kDisplay_max_height / Nokia_LCD_Fonts::kRows_per_character;
+const unsigned int kTotal_columns = nokia_lcd::kDisplay_max_width;
+const unsigned int kTotal_bits = nokia_lcd::kDisplay_max_width * kTotal_rows;
 const char kNull_char = '\0';
+const uint8_t kMax_number_length = 11;  // Size of unsigned long (10) + null
 }  // namespace
 
 Nokia_LCD::Nokia_LCD(const uint8_t clk_pin, const uint8_t din_pin,
@@ -34,7 +39,8 @@ Nokia_LCD::Nokia_LCD(const uint8_t clk_pin, const uint8_t din_pin,
       kUsingBacklight{false},
       kUsingHardwareSPI{false},
       mX_cursor{0},
-      mY_cursor{0} {}
+      mY_cursor{0},
+      mCurrentFont{&nokiaFont} {}
 
 Nokia_LCD::Nokia_LCD(const uint8_t dc_pin, const uint8_t ce_pin,
                      const uint8_t rst_pin)
@@ -47,7 +53,8 @@ Nokia_LCD::Nokia_LCD(const uint8_t dc_pin, const uint8_t ce_pin,
       kUsingBacklight{false},
       kUsingHardwareSPI{true},
       mX_cursor{0},
-      mY_cursor{0} {}
+      mY_cursor{0},
+      mCurrentFont{&nokiaFont} {}
 
 Nokia_LCD::Nokia_LCD(const uint8_t clk_pin, const uint8_t din_pin,
                      const uint8_t dc_pin, const uint8_t ce_pin,
@@ -61,7 +68,8 @@ Nokia_LCD::Nokia_LCD(const uint8_t clk_pin, const uint8_t din_pin,
       kUsingBacklight{true},
       kUsingHardwareSPI{false},
       mX_cursor{0},
-      mY_cursor{0} {}
+      mY_cursor{0},
+      mCurrentFont{&nokiaFont} {}
 
 Nokia_LCD::Nokia_LCD(const uint8_t dc_pin, const uint8_t ce_pin,
                      const uint8_t rst_pin, const uint8_t bl_pin)
@@ -74,7 +82,8 @@ Nokia_LCD::Nokia_LCD(const uint8_t dc_pin, const uint8_t ce_pin,
       kUsingBacklight{true},
       kUsingHardwareSPI{true},
       mX_cursor{0},
-      mY_cursor{0} {}
+      mY_cursor{0},
+      mCurrentFont{&nokiaFont} {}
 
 void Nokia_LCD::begin() {
     pinMode(kClk_pin, OUTPUT);
@@ -107,6 +116,15 @@ void Nokia_LCD::setContrast(uint8_t contrast) {
 
 void Nokia_LCD::setInverted(bool invert) { mInverted = invert; }
 
+void Nokia_LCD::setFont(const LcdFont *font) {
+    if (!font) {
+        return;
+    }
+    mCurrentFont = font;
+}
+
+void Nokia_LCD::setDefaultFont() { mCurrentFont = &nokiaFont; }
+
 void Nokia_LCD::setBacklight(bool enabled) {
     if (!kUsingBacklight) {
         return;
@@ -115,7 +133,7 @@ void Nokia_LCD::setBacklight(bool enabled) {
 }
 
 bool Nokia_LCD::setCursor(uint8_t x, uint8_t y) {
-    if (x >= kDisplay_max_width || y >= kTotal_rows) {
+    if (x >= nokia_lcd::kDisplay_max_width || y >= kTotal_rows) {
         return false;
     }
 
@@ -197,24 +215,28 @@ bool Nokia_LCD::printCharacter(char character) {
         return mY_cursor == 0;
     }
 
-    bool out_of_bounds = draw(Nokia_LCD_Fonts::kDefault_font[character - 0x20],
-                              Nokia_LCD_Fonts::kColumns_per_character, true);
+    bool out_of_bounds =
+        draw(mCurrentFont->getFont(character), mCurrentFont->columnSize, true);
     // Separate the characters with a vertical line so they don't appear too
     // close to each other
-    return draw(Nokia_LCD_Fonts::space, 1, false) || out_of_bounds;
+    return draw(mCurrentFont->hSpace, mCurrentFont->hSpaceSize, false) ||
+           out_of_bounds;
 }
 
 bool Nokia_LCD::draw(const unsigned char bitmap[],
-                     const unsigned int bitmap_size,
-                     const bool read_from_progmem) {
+                     const unsigned int bitmap_size,                     
+                     const bool read_from_progmem,
+                     const unsigned int bitmap_width) {
     bool out_of_bounds = false;
+    const unsigned int initialX = mX_cursor;
     for (unsigned int i = 0; i < bitmap_size; i++) {
         unsigned char pixel =
             read_from_progmem ? pgm_read_byte_near(bitmap + i) : bitmap[i];
         if (mInverted) {
             pixel = ~pixel;
         }
-        out_of_bounds = sendData(pixel) || out_of_bounds;
+        sendData(pixel, false);
+        out_of_bounds = updateCursorPosition(initialX, bitmap_width) || out_of_bounds; 
     }
 
     return out_of_bounds;
@@ -224,9 +246,32 @@ void Nokia_LCD::sendCommand(const unsigned char command) {
     send(command, false);
 }
 
-bool Nokia_LCD::sendData(const unsigned char data) { return send(data, true); }
+bool Nokia_LCD::sendData(const unsigned char data) { return sendData(data, true); }
 
-bool Nokia_LCD::send(const unsigned char lcd_byte, const bool is_data) {
+bool Nokia_LCD::sendData(const unsigned char data, const bool update_cursor) { return send(data, true, update_cursor); }
+
+bool Nokia_LCD::updateCursorPosition(const unsigned int x_start_position, const unsigned int x_end_position) {
+    bool out_of_bounds = false;
+
+    mX_cursor = (mX_cursor + 1) % (x_start_position + x_end_position);  // Used to determine if X reached the right margin. 
+                                                                        // E.g. starts drawing on column 10, an image of 25px width, 
+                                                                        // X will reach the right margin at 35px, so we have to break line
+    // Calculate the cursor position after the byte being sent
+    if (mX_cursor == 0) {
+        mX_cursor = x_start_position;      // return X to the initial position 
+        // If the column just became 0, this means the row should change
+        mY_cursor = (mY_cursor + 1) % kTotal_rows;  // Row
+        if (mY_cursor == 0) {
+            // If we are back to row 0 again, then we just went out of bounds
+            out_of_bounds = true;
+        }
+    }
+
+    setCursor(mX_cursor, mY_cursor);     // updates the cursor position   
+    return out_of_bounds;
+}
+
+bool Nokia_LCD::send(const unsigned char lcd_byte, const bool is_data, const bool update_cursor) {
     // Tell the LCD that we are writing either to data or a command
     digitalWrite(kDc_pin, is_data);
 
@@ -247,22 +292,11 @@ bool Nokia_LCD::send(const unsigned char lcd_byte, const bool is_data) {
 
     // If we just sent the command, there was no out-of-bounds error
     // and we don't have to calculate the new cursor position
-    if (!is_data) {
+    if (!is_data || !update_cursor) {
         return false;
     }
 
-    // Calculate the cursor position after the byte being sent
-    mX_cursor = (mX_cursor + 1) % kTotal_columns;  // Column
-    if (mX_cursor == 0) {
-        // If the column just became 0, this means the row should change
-        mY_cursor = (mY_cursor + 1) % kTotal_rows;  // Row
-        if (mY_cursor == 0) {
-            // If we are back to row 0 again, then we just went out of bounds
-            return true;
-        }
-    }
-
-    return false;
+    return updateCursorPosition();
 }
 
 bool Nokia_LCD::print(int number) {
@@ -290,20 +324,12 @@ bool Nokia_LCD::print(long number) {
 }
 
 bool Nokia_LCD::print(unsigned long number) {
-    const uint8_t base = 10;  // We shall treat all numbers as decimals
     // The log base 10 of the number increased by 1 indicates how many digits
     // there are in a number.
     const uint8_t length_as_string =
         static_cast<uint8_t>(log10(number)) + 1 + sizeof(kNull_char);
-
-    char number_as_string[length_as_string] = {0};
-    int8_t string_index = length_as_string - 1;   // Start from the end
-    number_as_string[string_index] = kNull_char;  // Null terminated string
-    while (--string_index >= 0) {
-        const char digit = static_cast<char>(number % base);
-        number /= base;
-        number_as_string[string_index] = '0' + digit;
-    }
+    char number_as_string[kMax_number_length] = {0};
+    snprintf(number_as_string, length_as_string, "%lu", number);
 
     return print(number_as_string);
 }
