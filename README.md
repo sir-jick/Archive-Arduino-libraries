@@ -7,4 +7,4 @@ also you can use this archive.
 clone repo to arduino library document folder
 for windows : C:\Users\<your-PC-name>\Documents\Arduino\libraries
 for macos :
-for linux :
+for linux : /home/<your-name>/Arduino/libraries
