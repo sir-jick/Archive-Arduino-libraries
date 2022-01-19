@@ -5,6 +5,6 @@ also you can use this archive.
 
 # HOW TO USE
 clone repo to arduino library document folder
-for windows : 'C:\Users\<your-PC-name>\Documents\Arduino\libraries'
+for windows : `C:\Users\<your-PC-name>\Documents\Arduino\libraries`
 for macos :
-for linux : '/home/<your-user-name>/Arduino/libraries'
+for linux : `/home/<your-user-name>/Arduino/libraries`
