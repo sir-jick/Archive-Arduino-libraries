@@ -11,33 +11,15 @@
 
 #define setMatch1C(match) OCR1C = match
 
-/*
-CS13 CS12 CS11 CS10
-0    0    0    0    stopped
-0    0    0    1    clock
-0    0    1    0    clock /2
-0    0    1    1    clock /4
-0    1    0    0    clock /8
-0    1    0    1    clock /16
-0    1    1    0    clock /32
-0    1    1    1    clock /64
-1    0    0    0    clock /128
-1    0    0    1    clock /256
-1    0    1    0    clock /512
-1    0    1    1    clock /1024
-1    1    0    0    clock /2048
-1    1    0    1    clock /4096
-1    1    1    0    clock /8192
-1    1    1    1    clock /16384
-*/
 TinyTimer Timer1Compare(
-  [](uint16_t match) {
+  [](uint32_t match) {
+    if (match > 0x3FC000) return;
     compareMode1();
     cleanPrescale1();
     uint8_t prescale = 1;
     while (match > 256) {
       prescale++;
-      match = (match >> 1) + (match & 1);
+      match = (match + 1) >> 1;
     }
     setPrescale1(prescale);
     setMatch1C(match - 1);
@@ -48,6 +30,10 @@ TinyTimer Timer1Compare(
     normalMode1();
   });
 
+inline void _ISRTimerCallbackFunction() {
+  if (Timer1Compare.onTimer) Timer1Compare.onTimer();
+}
+
 ISR(TIMER1_COMPA_vect) {
-  Timer1Compare.onTimer();
+  _ISRTimerCallbackFunction();
 }
