@@ -38,12 +38,12 @@
 //    RX  6 (0) PA0  1|    |20  PB0 (D8)  0 OC1AU  TONE  Timer 1 Channel A
 //    TX  7 (1) PA1  2|    |19  PB1 (9)  1 OC1BU  Internal LED
 //        8 (2) PA2  3|    |18  PB2 (10) 2 OC1AV  Timer 1 Channel B
-//   INT1 9 (3) PA3  4|    |17  PB3 (11) 4 OC1BV  connected with 51 Ohm to D- and 3.3 volt Zener.
+//   INT1 9 (3) PA3  4|    |17  PB3 (11) 4 OC1BV  connected with 51 ohm to D- and 3.3 volt zener diode.
 //             AVCC  5|    |16  GND
 //             AGND  6|    |15  VCC
 //       10 (4) PA4  7|    |14  PB4 (12) XTAL1
 //       11 (5) PA5  8|    |13  PB5 (13) XTAL2
-//       12 (6) PA6  9|    |12  PB6 (14) 3 INT0  connected with 68 Ohm to D+ (and disconnected 3.3 volt Zener). Is terminated with ~20 kOhm if USB attached :-(
+//       12 (6) PA6  9|    |12  PB6 (14) 3 INT0  connected with 68 ohm to D+ (and disconnected 3.3 volt zener diode). Is terminated with ~20 kOhm if USB attached :-(
 //        5 (7) PA7 10|    |11  PB7 (15) RESET
 //                    +----+
 //
@@ -76,9 +76,18 @@
     || defined(__AVR_ATtiny88__)
 #include <Arduino.h>
 
-#define VERSION_ATTINY_SERIAL_OUT "2.0.0"
+#define VERSION_ATTINY_SERIAL_OUT "2.1.0"
 #define VERSION_ATTINY_SERIAL_OUT_MAJOR 2
-#define VERSION_ATTINY_SERIAL_OUT_MINOR 0
+#define VERSION_ATTINY_SERIAL_OUT_MINOR 1
+#define VERSION_ATTINY_SERIAL_OUT_PATCH 0
+// The change log is at the bottom of the file
+
+/*
+ * Macro to convert 3 version parts into an integer
+ * To be used in preprocessor comparisons, such as #if VERSION_ATTINY_SERIAL_OUT_HEX >= VERSION_HEX_VALUE(3, 0, 0)
+ */
+#define VERSION_HEX_VALUE(major, minor, patch) ((major << 16) | (minor << 8) | (patch))
+#define VERSION_ATTINY_SERIAL_OUT_HEX  VERSION_HEX_VALUE(VERSION_ATTINY_SERIAL_OUT_MAJOR, VERSION_ATTINY_SERIAL_OUT_MINOR, VERSION_ATTINY_SERIAL_OUT_PATCH)
 
 #if (F_CPU != 1000000) &&  (F_CPU != 8000000) &&  (F_CPU != 16000000)
 #error F_CPU value must be 1000000, 8000000 or 16000000.
@@ -197,6 +206,9 @@ public:
 };
 
 // This if is required to be compatible with ATTinyCores and AttinyDigisparkCores
+#if defined(USE_SOFTWARE_SERIAL) && (7-USE_SOFTWARE_SERIAL-7 == 14)
+#define USE_SOFTWARE_SERIAL 1   // define it to 1 if it is only defined, but has no value
+#endif
 #if defined(DEFAULT_TO_TINY_DEBUG_SERIAL) /*AttinyDigisparkCore condition for defining Serial at line 745 in TinyDebugSerial.h*/ \
     || ((!defined(UBRRH) && !defined(UBRR0H)) || (defined(USE_SOFTWARE_SERIAL) && USE_SOFTWARE_SERIAL)) /*ATTinyCore condition for defining Serial at line 55 in TinySoftwareSerial.h*/\
     || ((defined(UBRRH) || defined(UBRR0H) || (defined(LINBRRH)) && !USE_SOFTWARE_SERIAL)) /*ATTinyCore condition for for defining Serial at line 71ff in HardwareSerial.h*/
