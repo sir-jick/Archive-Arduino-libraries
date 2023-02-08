@@ -1,6 +1,14 @@
 ContinuousStepper: changelog
 ============================
 
+2.2.0
+-----
+
+* Fix occasional missed ticks on timer-based implementations
+* Add `ContinuousStepper_Tone` which uses `tone()` instead of `digitalWrite()` for the step pin
+* Add `ContinuousStepper_AWF` which uses `analogWriteFrequency()` on Teensy 3 and 4
+* Add `ContinuousStepper_KhoiH` which uses Khoi Hoang's PWM libraries
+
 2.1.0
 -----
 

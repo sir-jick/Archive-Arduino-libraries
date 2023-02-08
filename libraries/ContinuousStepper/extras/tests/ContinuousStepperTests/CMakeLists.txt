@@ -6,16 +6,14 @@ add_executable(ContinuousStepperTests
   spin.cpp
   stop.cpp
 
-  helpers.hpp
-  helpers.cpp
+  ContinuousStepper_AWF.cpp
+  ContinuousStepper_Tone.cpp
 )
 
 target_link_libraries(ContinuousStepperTests
   PRIVATE
-    ArduinoStub
-    EventLog
+    TestFixtures
     ContinuousStepper
-    Catch2::Catch2WithMain
 )
 
 if(MSVC)

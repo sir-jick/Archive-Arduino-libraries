@@ -6,28 +6,21 @@
 
 namespace ArduinoContinuousStepper {
 
-struct TimerClient {
-  virtual void tick() = 0;
-};
-
-template <typename TTimer>
-class ContinuousStepperBase : TimerClient {
+class ContinuousStepperBase {
 public:
   typedef unsigned long time_t;
   typedef double float_t;
   typedef uint8_t pin_t;
-
-  ContinuousStepperBase(const TTimer &timer) : _timer(timer) {}
 
   void begin(pin_t stepPin, pin_t dirPin) {
     _stepPin = stepPin;
     _dirPin = dirPin;
     _status = WAIT;
 
-    _timer.begin(this);
-
     pinMode(stepPin, OUTPUT);
     pinMode(dirPin, OUTPUT);
+
+    initialize();
   }
 
   CONTINUOUSSTEPPER_DEPRECATED("use setEnablePin() instead")
@@ -59,7 +52,7 @@ public:
 
     _status = OFF;
     _currentSpeed = 0;
-    setInterval(0);
+    setPeriod(0);
   }
 
   void spin(float_t speed) {
@@ -76,8 +69,8 @@ public:
     return _currentSpeed;
   }
 
-  time_t interval() const {
-    return _interval;
+  time_t period() const {
+    return _period;
   }
 
   void setAcceleration(float_t acceleration) {
@@ -90,45 +83,44 @@ public:
   }
 
 protected:
-  void tick() override {
-    if (_status == WAIT || _status == OFF)
-      return;
-
-    time_t t = now();
-    time_t elapsed = t - _lastTick;
-
-    if (elapsed >= _interval) {
-      if (_stepLevel == HIGH) {
-        writeStep(LOW);
-      } else {
-
-        if (_status == STEP) {
-          writeDir(_currentSpeed >= 0 ? HIGH : LOW);
-          writeStep(HIGH);
-        }
-
-        updateSpeed();
+  void tick() {
+    if (_stepLevel == LOW) {
+      if (_status == STEP) {
+        writeDir();
+        writeStep(HIGH);
+        _stepLevel = HIGH;
       }
-
-      _lastTick = t;
+      updateSpeedIfNeeded();
+    } else {
+      writeStep(LOW);
+      _stepLevel = LOW;
     }
   }
 
-private:
-  void writeStep(bool level) {
-    digitalWrite(_stepPin, level);
-    _stepLevel = level;
+  void updateSpeedIfNeeded() {
+    if (_targetSpeed != _currentSpeed)
+      updateSpeed();
   }
 
-  void writeDir(bool level) {
+  virtual void writeStep(bool level) {
+    digitalWrite(_stepPin, level);
+  }
+
+  pin_t stepPin() const {
+    return _stepPin;
+  }
+
+  void writeDir() {
+    bool level = _currentSpeed >= 0 ? HIGH : LOW;
     if (level == _dirLevel)
       return;
     digitalWrite(_dirPin, level);
     _dirLevel = level;
   }
 
+private:
   void updateSpeed() {
-    float_t speedIncrement = _interval ? _acceleration * _interval * 2 / oneSecond : _minSpeedForAcceleration;
+    float_t speedIncrement = _period ? _acceleration * _period / oneSecond : _minSpeedForAcceleration;
 
     if (_targetSpeed > _currentSpeed) {
       _currentSpeed = min(_currentSpeed + speedIncrement, _targetSpeed);
@@ -139,41 +131,34 @@ private:
     }
 
     if (abs(_currentSpeed) >= _minSpeedForAcceleration) {
-      setInterval(oneSecond / abs(_currentSpeed) / 2);
+      _period = oneSecond / abs(_currentSpeed);
       _status = STEP;
     } else if (abs(_targetSpeed) >= _minSpeedForAcceleration) {
       // crossing the zero on the speed graph
-      setInterval(oneSecond / _minSpeedForAcceleration / 2);
+      _period = oneSecond / _minSpeedForAcceleration;
       _status = SKIP;
     } else if (_targetSpeed) {
       // target speed is not null but too low to allow a smooth acceleration
-      setInterval(oneSecond / _targetSpeed / 2);
+      _period = oneSecond / abs(_targetSpeed);
       _status = STEP;
     } else {
       // target speed is null
       _status = WAIT;
       _currentSpeed = 0;
-      setInterval(0);
+      _period = 0;
     }
+
+    setPeriod(_period);
   }
 
-  void setInterval(time_t interval) {
-    if (interval != _interval) {
-      _interval = interval;
-      _timer.setPeriod(interval);
-    }
-  }
-
-  static time_t now() {
-    return micros();
-  }
+  virtual void initialize(){};
+  virtual void setPeriod(time_t period) = 0;
 
   static const pin_t NULL_PIN = 255;
   static const time_t oneSecond = 1e6;
 
-  TTimer _timer;
   pin_t _stepPin = 0, _dirPin = 0, _enablePin = NULL_PIN;
-  time_t _lastTick = 0, _interval = 0;
+  time_t _period = 0;
   float_t _targetSpeed = 0, _currentSpeed = 0, _acceleration = 1000, _minSpeedForAcceleration = sqrt(1000);
   bool _stepLevel = LOW, _dirLevel = LOW, _enablePinActiveLevel = HIGH;
 
