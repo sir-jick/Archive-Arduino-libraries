@@ -1,8 +1,8 @@
 #include <ContinuousStepper.h>
 #include <TestFixtures.hpp>
 
-TEST_CASE("ContinuousStepper::setEnablePin()") {
-  ContinuousStepper stepper;
+TEST_CASE("ContinuousStepper<StepperDriver>::setEnablePin()") {
+  ContinuousStepper<StepperDriver> stepper;
 
   GIVEN("begin(10, 11) was called") {
     stepper.begin(10, 11);

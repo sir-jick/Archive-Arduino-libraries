@@ -1,34 +1,34 @@
 #include <ContinuousStepper.h>
 #include <TestFixtures.hpp>
 
-TEST_CASE("ContinuousStepper::begin()") {
+TEST_CASE("ContinuousStepper<StepperDriver>::begin()") {
+  ContinuousStepper<StepperDriver> stepper;
 
-  GIVEN("an uninitialized stepper") {
-    ContinuousStepper stepper;
+  WHEN("begin(10, 11) is called") {
+    stepper.begin(10, 11);
 
-    WHEN("begin() is called with 2 arguments") {
-      stepper.begin(10, 11);
-
-      THEN("it should should configure both pins as OUTPUT") {
-        CHECK_ARDUINO_LOG({
-            {0'000, "pinMode(10, OUTPUT)"},
-            {0'000, "pinMode(11, OUTPUT)"},
-        });
-      }
+    THEN("it should configure both pins as OUTPUT") {
+      CHECK_ARDUINO_LOG({
+          {0'000, "pinMode(10, OUTPUT)"},
+          {0'000, "pinMode(11, OUTPUT)"},
+      });
     }
+  }
+}
 
-    WHEN("begin() is called with 2 arguments") {
-      stepper.begin(10, 11, 12);
+TEST_CASE("ContinuousStepper<FourWireStepper>::begin()") {
+  ContinuousStepper<FourWireStepper> stepper;
 
-      THEN("it should configure pins as OUTPUT and set power pin "
-           "to HIGH") {
-        CHECK_ARDUINO_LOG({
-            {0'000, "pinMode(10, OUTPUT)"},
-            {0'000, "pinMode(11, OUTPUT)"},
-            {0'000, "pinMode(12, OUTPUT)"},
-            {0'000, "digitalWrite(12, HIGH)"},
-        });
-      }
+  WHEN("begin(2, 3, 4, 5) is called") {
+    stepper.begin(2, 3, 4, 5);
+
+    THEN("it should configure the four pins as OUTPUT") {
+      CHECK_ARDUINO_LOG({
+          {0'000, "pinMode(2, OUTPUT)"},
+          {0'000, "pinMode(3, OUTPUT)"},
+          {0'000, "pinMode(4, OUTPUT)"},
+          {0'000, "pinMode(5, OUTPUT)"},
+      });
     }
   }
 }

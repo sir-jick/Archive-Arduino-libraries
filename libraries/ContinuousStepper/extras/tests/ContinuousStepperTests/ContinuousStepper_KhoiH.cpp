@@ -1,11 +1,14 @@
 #include <ContinuousStepper.h>
-#include <ContinuousStepper/Tickers/Tone.hpp>
+#include <ContinuousStepper/Tickers/KhoiH_PWM.hpp>
+#include <Teensy_PWM.h>
 #include <TestFixtures.hpp>
 
-TEST_CASE("ContinuousStepper<StepperDriver, ToneTicker>") {
-  ContinuousStepper<StepperDriver, ToneTicker> stepper;
+TEST_CASE(
+    "ContinuousStepper<StepperDriver, KhoihTicker<Teensy_PWM>>") {
 
-  GIVEN("begin(10, 11) was called") {
+  ContinuousStepper<StepperDriver, KhoihTicker<Teensy_PWM>> stepper;
+
+  GIVEN("begin() was called with 2 arguments") {
     stepper.begin(10, 11);
 
     AND_GIVEN("setAcceleration(1000) was called") {
@@ -20,7 +23,7 @@ TEST_CASE("ContinuousStepper<StepperDriver, ToneTicker>") {
 
           CHECK_ARDUINO_LOG({
               {0'000, "digitalWrite(11, HIGH)"},
-              {0'000, "tone(10, 10)"},
+              {0'000, "Teensy_PWM::setPWM(10, 10, 50)"},
           });
 
           AND_WHEN("spin(-10) is called") {
@@ -32,7 +35,7 @@ TEST_CASE("ContinuousStepper<StepperDriver, ToneTicker>") {
 
               CHECK_ARDUINO_LOG({
                   {0'000, "digitalWrite(11, LOW)"},
-                  {0'000, "tone(10, 10)"},
+                  {0'000, "Teensy_PWM::setPWM(10, 10, 50)"},
               });
             }
           }
@@ -49,11 +52,11 @@ TEST_CASE("ContinuousStepper<StepperDriver, ToneTicker>") {
 
           CHECK_ARDUINO_LOG({
               {0'000, "digitalWrite(11, HIGH)"},
-              {0'000, "tone(10, 31)"},
-              {31'622, "tone(10, 63)"},
-              {47'433, "tone(10, 79)"},
-              {60'082, "tone(10, 91)"},
-              {70'986, "tone(10, 100)"},
+              {0'000, "Teensy_PWM::setPWM(10, 31, 50)"},
+              {31'622, "Teensy_PWM::setPWM(10, 63, 50)"},
+              {47'433, "Teensy_PWM::setPWM(10, 79, 50)"},
+              {60'082, "Teensy_PWM::setPWM(10, 91, 50)"},
+              {70'986, "Teensy_PWM::setPWM(10, 100, 50)"},
           });
 
           AND_WHEN("spin(-100) is called") {
@@ -65,18 +68,18 @@ TEST_CASE("ContinuousStepper<StepperDriver, ToneTicker>") {
               REQUIRE(stepper.speed() == -100);
 
               CHECK_ARDUINO_LOG({
-                  {100'000, "tone(10, 90)"},
-                  {102'097, "tone(10, 78)"},
-                  {114'773, "tone(10, 66)"},
-                  {129'875, "tone(10, 51)"},
-                  {149'440, "tone(10, 31)"},
+                  {100'000, "Teensy_PWM::setPWM(10, 90, 50)"},
+                  {102'097, "Teensy_PWM::setPWM(10, 78, 50)"},
+                  {114'773, "Teensy_PWM::setPWM(10, 66, 50)"},
+                  {129'875, "Teensy_PWM::setPWM(10, 51, 50)"},
+                  {149'440, "Teensy_PWM::setPWM(10, 31, 50)"},
                   {181'062, "digitalWrite(11, LOW)"},
-                  {181'062, "tone(10, 31)"},
-                  {212'684, "tone(10, 31)"},
-                  {244'231, "tone(10, 63)"},
-                  {260'042, "tone(10, 79)"},
-                  {272'691, "tone(10, 91)"},
-                  {283'595, "tone(10, 100)"},
+                  {181'062, "Teensy_PWM::setPWM(10, 31, 50)"},
+                  {212'684, "Teensy_PWM::setPWM(10, 31, 50)"},
+                  {244'231, "Teensy_PWM::setPWM(10, 63, 50)"},
+                  {260'042, "Teensy_PWM::setPWM(10, 79, 50)"},
+                  {272'691, "Teensy_PWM::setPWM(10, 91, 50)"},
+                  {283'595, "Teensy_PWM::setPWM(10, 100, 50)"},
               });
             }
           }
