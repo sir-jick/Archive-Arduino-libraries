@@ -4,6 +4,8 @@
 
 namespace ArduinoContinuousStepper {
 
+using frequency_t = unsigned int;
+
 template <class TOscillator>
 class OscillatorTicker : StepperTicker {
   using time_t = unsigned long;
@@ -33,8 +35,9 @@ protected:
   }
 
   void setPeriod(unsigned long period) {
-    if (period) {
-      oscillator_.start(1e6 / period);
+    auto frequency = period ? 1e6 / period : 0;
+    if (frequency >= oscillator_.minFrequency()) {
+      oscillator_.start(frequency);
     } else {
       oscillator_.stop();
     }
