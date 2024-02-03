@@ -2,9 +2,9 @@
  * WhistleSwitch.cpp
  *
  * Analyzes a microphone signal and toggles an output pin, if the main frequency is for a specified duration in a specified range.
- * For Tiny85 with 1 MHz
+ * For ATtiny85 with 1 MHz - CLOCK_SOURCE=6 must be defined for ATTinyCore
  *
- *  Copyright (C) 2014-2020  Armin Joachimsmeyer
+ *  Copyright (C) 2014-2023  Armin Joachimsmeyer
  *  Email: armin.joachimsmeyer@gmail.com
  *
  *  This file is part of Arduino-FrequencyDetector https://github.com/ArminJo/Arduino-FrequencyDetector.
@@ -16,11 +16,11 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  See the GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program.  If not, see <http://www.gnu.org/licenses/gpl.html>.
+ *  along with this program. If not, see <http://www.gnu.org/licenses/gpl.html>.
  *
  *  It uses FrequencyDetector to recognize a whistle pitch which in turn operates a mains relay.
  *  By using different pitches it is possible to control multiple relays in a single room.
@@ -30,17 +30,18 @@
  *  This can be useful if a machine generated signal (e.g. from a vacuum cleaner) matches the range.
  *
  *  BUTTON OPERATION / RESET
- *  On button release, the relay state is toggled. If the press was in RELAY_DEAD_MILLIS (1) seconds after the last press, the relay is NOT toggled.
+ *  On button release, the relay state is toggled. If the press was in RELAY_DEAD_MILLIS (800) seconds after the last press, the relay is NOT toggled.
  *  This relay dead time was introduced, to avoid relay switching while trying to perform a reset by double press, see below.
  *  A reset can be performed by power off/on or by pressing the button two times with each time shorter than RESET_ENTER_BUTTON_PUSH_MILLIS (0.12 seconds)
  *  within a RESET_WAIT_TIMEOUT_MILLIS (0.3 seconds) interval.
  *  A button press longer than BUTTON_PUSH_ENTER_PROGRAM_SIMPLE_MILLIS (1.5 seconds) will enter the programming mode, which is indicated by a LED blink.
  *
  *  INFO
- *  After power up or reset, the feedback LED echoes the range number. Range number 10 indicates an individual range, programmed by advanced programming.
- *  The timeout state is signaled by short LED pulses after the range number feedback (no short pulse -> no timeout enabled).
- *  If the button is pressed during the info / startup, the ADC ((AverageLevel + 50) / 100) is signaled after the timeout signaling.
- *      Range is from 0 to 10. Values of 4 to 6 are optimal.
+ *  After power up or reset, the feedback LED echoes the frequency range number. Range number 10 indicates an individual range, programmed by advanced programming.
+ *  The timeout range index is signaled by short LED pulses after the range number feedback (no short pulse -> no timeout enabled, 1 -> 2h, 2 -> 4h, 3 -> 8h).
+ *  If the button is pressed during boot / startup, the ADC ((AverageLevel + 50) / 100) is signaled
+ *  instead of the frequency and timeout frequency range 1 second after button release.
+ *      Range is from 0 to 10. Values of 4 or 5 are optimal.
  *
  *  TIMEOUT
  *  After a timeout of TIMEOUT_RELAY_ON_SIGNAL_MINUTES_(1 to 3) (2, 4 or 8 hours) the relay goes OFF for 1 second.
@@ -48,7 +49,7 @@
  *  otherwise the relay will switch OFF.
  *  Cancellation of timeout is acknowledged by the LED blinking 5 times for 1 second on and off.
  *  Timeout can be switched on by selecting the dummy ranges 11 to 13 and off by selecting the dummy range 10.
- *  Default is TIMEOUT_RELAY_ON_SIGNAL_MINUTES_3 (8 hours).
+ *  Default is TIMEOUT_RELAY_ON_SIGNAL_8_HOURS.
  *
  *  PROGRAMMING
  *  Programming is done by a long press of the button.
@@ -87,9 +88,9 @@
  9.   1000 - 1230 Hz  -> 230 Hz C6-DS6
 
  10  dummy range, if chosen disable relay on timeout handling.
- 11  dummy range, if chosen set relay on timeout to TIMEOUT_RELAY_ON_SIGNAL_MINUTES_1 (2 hours).
- 12  dummy range, if chosen set relay on timeout to TIMEOUT_RELAY_ON_SIGNAL_MINUTES_2 (4 hours).
- 13  dummy range, if chosen set relay on timeout to TIMEOUT_RELAY_ON_SIGNAL_MINUTES_3 (8 hours).
+ 11  dummy range, if chosen set relay on timeout to TIMEOUT_RELAY_ON_SIGNAL_2_HOURS (2 hours).
+ 12  dummy range, if chosen set relay on timeout to TIMEOUT_RELAY_ON_SIGNAL_4_HOURS (4 hours).
+ 13  dummy range, if chosen set relay on timeout to TIMEOUT_RELAY_ON_SIGNAL_8_HOURS (8 hours).
  *
  *  BUTTON
  *  Button state change is handled by an InterruptServiceRoutine
@@ -116,26 +117,24 @@
  */
 
 #include <Arduino.h>
-#include "FrequencyDetector.h"
 
 #define VERSION_EXAMPLE "8.1"
 
 #if defined(__AVR_ATtiny25__) || defined(__AVR_ATtiny45__)
-#error "Code size of this example is too large to fit in an ATtiny 25 or 45."
+#error Code size of this example is too large to fit in an ATtiny 25 or 45.
 #endif
 
 /*
  * Use ATtiny85 ADC 20x amplification
- * Required if we have
  * This requires ADC2 as signal input and ADC3 as signal reference / button input
  * If not defined, the 1x amplification is used with a more digispark compatible pin layout
  */
 //#define USE_ATTINY85_20X_AMPLIFICATION
-//#define PRINT_RESULTS_TO_SERIAL_PLOTTER
+//#define PRINT_RESULTS_TO_SERIAL_PLOTTER   // Enable this to print generated output to Arduino Serial Plotter (Ctrl-Shift-L)
 //#define MEASURE_TIMING // do not activate for ATTinies since there is no timing pin left
 //#define TRACE
 //#define DEBUG
-#if ! defined (INFO)
+#if !defined(INFO)
 #define INFO // release version
 #endif
 #include "DebugLevel.h" // to propagate above debug levels
@@ -148,7 +147,7 @@ uint16_t predefinedRangesEnd[] = { 2050, 1680, 1480, 1280, 1130, 990, 1900, 1530
 #define PREDEFINED_RANGES_START_ARRAY_SIZE  (sizeof(predefinedRangesStart)/sizeof(predefinedRangesStart[0]))
 
 #if defined(INFO)
-#include "AVRUtils.h"   // for getFreeRam()
+#include "AVRUtils.h"   // for printRAMInfo()
 #include "ShowInfo.h"   // printBODLevel()
 #endif
 
@@ -157,19 +156,24 @@ uint16_t predefinedRangesEnd[] = { 2050, 1680, 1480, 1280, 1130, 990, 1900, 1530
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
 
-// ATMEL ATTINY85 - 1x LAYOUT - direct compatible with Digispark boards.
+// ATMEL ATTINY85 - LEGACY LAYOUT - for my old PCBs
 //
 //                                                          +-\/-+
-//  RESET                  PCINT5/!RESET/ADC0/dW (D5) PB5  1|    |8  Vcc
+//  RESET                  PCINT5/!RESET/ADC0/dW (D5) PB5  1|    |8  VCC
 //  BUTTON   USB+ - PCINT3/XTAL1/CLKI/!OC1B/ADC3 (D3) PB3  2|    |7  PB2 (D2) SCK/USCK/SCL/ADC1/T0/INT0/PCINT2 - SIGNAL_IN
-//  RELAY_OUT USB- - PCINT4/XTAL2/CLKO/OC1B/ADC2 (D4) PB4  3|    |6  PB1 (D1) MISO/DO/AIN1/OC0B/OC1A/PCINT1 - LED_BUILTIN / LED_FEEDBACK
-//                                                    GND  4|    |5  PB0 (D0) MOSI/DI/SDA/AIN0/OC0A/!OC1A/AREF/PCINT0 - DEBUG TX
+//  RELAY_OUT USB- - PCINT4/XTAL2/CLKO/OC1B/ADC2 (D4) PB4  3|    |6  PB1 (D1) MISO/DO/AIN1/OC0B/OC1A/PCINT1 - DEBUG TX
+//                                                    GND  4|    |5  PB0 (D0) MOSI/DI/SDA/AIN0/OC0A/!OC1A/AREF/PCINT0 - LED_BUILTIN / LED_FEEDBACK
 //                                                          +----+
 //
-// ATMEL ATTINY85 -  20x LAYOUT - must remove PB4 connection and capacitor between PB3 and PB4 before programming board with micronucleus.
+// Direct compatible with Digispark boards.
+// On Digispark boards, PB5/USB- and PB3/USB+ are clamped by a 68 (USB A version) or 22 ohm (micro USB version) series resistor connected to a 3.7 V Zener to ground.
+// PB3/USB+ has a 1.0k (USB A version) or 1.5k (micro USB version) pullup to VCCC.
+//
+//
+// ATMEL ATTINY85 -  1x and 20x LAYOUT - must remove PB4 connection and capacitor between PB3 and PB4 before programming board with micronucleus.
 //
 //                                                          +-\/-+
-//  RESET                  PCINT5/!RESET/ADC0/dW (D5) PB5  1|    |8  Vcc
+//  RESET                  PCINT5/!RESET/ADC0/dW (D5) PB5  1|    |8  VCC
 //  BUTTON   USB+ - PCINT3/XTAL1/CLKI/!OC1B/ADC3 (D3) PB3  2|    |7  PB2 (D2) SCK/USCK/SCL/ADC1/T0/INT0/PCINT2 - DEBUG TX
 //  SIGNAL_IN USB- - PCINT4/XTAL2/CLKO/OC1B/ADC2 (D4) PB4  3|    |6  PB1 (D1) MISO/DO/AIN1/OC0B/OC1A/PCINT1 - LED_BUILTIN / LED_FEEDBACK
 //                                                    GND  4|    |5  PB0 (D0) MOSI/DI/SDA/AIN0/OC0A/!OC1A/AREF/PCINT0 - RELAY_OUT
@@ -200,19 +204,19 @@ uint16_t predefinedRangesEnd[] = { 2050, 1680, 1480, 1280, 1130, 990, 1900, 1530
  *      |                             o-|_____|--o
  *      _                             |   1M     |
  *     | |                            |          |
- *     | | 4k7       ____             |  2|\     |
- *     |_| ---------|____|------------o---| \____o______o SIGNAL_IN (ADC1)
- *      | /  ____    10k      ____    |   | /6
- *      o---|____|-----o-----|____|-------|/
+ *     | | 4k7                        |  2|\     |
+ *     |_|                            o---| \____o----> TO ADC
+ *      |    ____    10k      ____    |   | /6
+ *      o---|____|-----o-----|____|------+|/
  *      |     4k7      |      4k7     |  3
  *     ---            |O MICROPHONE   _    LM308
  *     --- 1 uF        |             | |
- *      |              |             | | 1k
+ *      |              |             | | 4k7 x200 Amplification
  *     ___            ___            |_|
  *                                    |
  *                                    |
  *                                   ---
- *                                   ---  100 nF
+ *                                   ---  100 nF 300 kHz high pass
  *                                    |
  *                                   ___
  *
@@ -220,56 +224,59 @@ uint16_t predefinedRangesEnd[] = { 2050, 1680, 1480, 1280, 1130, 990, 1900, 1530
 
 /*
  * External circuit for 1x amplification configuration on a Digispark board.
+ * Input DC level is 550 mV, which is half of the internal 1.1 V reference
  *
- *          + CPU 5V                                    - * Schottky-diode
- *          o------------------------------------ o-----|<|--o-- USB 5V
- *          |                                     |    -     |
- *          _                                     |          |
- *         | |                                    o /        |
- *    470k | |                                     /=| Push button
- *         |_|                                    /          |
- *     1n   |   ____       ____                   o----------o
- *  >- | |--o--|____|--o--|____|--O PB4 550 mV    |
- *   500Hz  |   3k3    |   10k to enable USB      _
- *   High   _          |       programming       | |
- *   Pass  | |        ---                        | | * 1k5 pullup
- *    100k | |        --- 22n 2kHz Low           |_|
- *         |_|         |          Pass            |
- *          |          |                   ____   |
- *          o----------o           PB3 O--|____|--o
- *          |                            * 68/22  |
- *          |                                    __
- *          |                                    /\` * 3V6 Z-diode
- *          |                                    --
- *          |                                     |  * = assembled USB circuit on Digispark
- *          |                                     |
- *         ___                                   ___
+ *          + CPU 5V                          - * Schottky-diode
+ *          o-------------------------- o-----|<|--o-- USB 5V
+ *          |                           |    -     |
+ *          _                           o /        | <-- Modification to save power and to be compatible with 20x amplification
+ *         | |              Push button  /=|       |
+ *    470k | |                          /          |
+ *         |_|                          o          |
+ *     1n   |    ____ 550 mV DC level   |          |
+ *  >---||--o---|____|--O PB4           _          _
+ *   500Hz  |    10k                   | |        | |
+ *   High   _                      47k | |        | | * 1k5 pullup
+ *   Pass  | |                         |_|        |_|
+ *    100k | |                          |          |
+ *         |_|                          |          |
+ *          |                           |    ____  |
+ *          |            PB3 O----------o---|____|-o
+ *          |                           |  * 68/22 |
+ *          |                           _         __
+ *          |                          | |        /\` * 3V6 Z-diode
+ *          |                     100k | |        --
+ *          |                          |_|         |  * = assembled USB circuit on Digispark
+ *          |                           |          |
+ *         ___                         ___        ___
+ *
+ *
  *
  * External circuit for 20x amplification configuration on a Digispark board.
  *
- *          + CPU 5V                                    - * Schottky-diode
- *          o------------------------------------ o-----|<|--o-- USB 5V
- *          |                                     |    -     |
- *          _                                     |          |
- *         | |                                    o /        |
- *    680k | |                                     /=| Push button
- *         |_|                                    /          |
- *    100n  |   ____       ____                   o----------o
- *  >- | |--o--|____|--o--|____|--O PB4 44 mV     |
- *   500Hz  |   3k3    |   10k to enable USB      _
- *   High   _          |       programming       | |
- *   Pass  | |        ---                        | | * 1k5 pullup
- *     3k3 | |        --- 22n 2kHz Low           |_|
- *         |_|         |          Pass            |
- *          |          |                   ____   |
- *          o----------o--O PB3 22 mV-----|____|--o
- *          |                            * 68/22  |
- *          _                                    __
- *         | |                                   /\` * 3V6 Z-diode
- *     3k3 | |                                   --
- *         |_|                                    |  * = assembled USB circuit on Digispark
- *          |                                     |
- *         ___                                   ___
+ *                                  + CPU 5V         - * Schottky-diode
+ *                                      o----- o-----|<|--o-- USB 5V
+ *                                      |      |    -     | <-- Modification for 20x amplification
+ *                                      _      o /        |
+ *                                     | |      /=|  Push | button
+ *                                  1M | |     /          |
+ *                                     |_|     o          |
+ *              ____             ____   |      |          |
+ * >--||-o-||--|____|--O PB4 O--|____|--o      _          _
+ *   10n | 10n  10k        44 mV 100k   |     | |        | |
+ *       |                DC level      _  1k | |        | | * 1k5 pullup
+ *       | High pass                   | |    |_|        |_|
+ *       | 800 Hz                  5k6 | |     |          |
+ *       |                             |_|     |          |
+ *       |                              |      |    ____  |
+ *       _               PB3 O----------o------o---|____|-o
+ *      | |                     22 mV   |         * 68/22 |
+ *  22k | |                   DC level  _                __
+ *      |_|                            | |               /\` * 3V6 Z-diode
+ *       |                         4k7 | |               --
+ *       |                             |_|                |  * = assembled USB circuit on Digispark
+ *       |                              |                 |
+ *      ___                            ___               ___
  *
  *   PB2 O-- Serial out 115200 baud
  *   PB1 O-- Feedback LED
@@ -281,39 +288,62 @@ uint16_t predefinedRangesEnd[] = { 2050, 1680, 1480, 1280, 1130, 990, 1900, 1530
 /*
  * Attiny85
  */
-#if (defined(INFO) || defined(DEBUG) || defined(TRACE))
-#include "ATtinySerialOut.h" // Available as Arduino library
-#endif
+#define BUTTON_PIN      PIN_PB3 // define for EasyButton below.
 
-// defines for EasyButton below.
-#define BUTTON_PIN 3
-// Pin 3 is clamped by 3V3 zener diode. If we want to have button ACTIVE_LOW we must add a 10k pullup resistor, which requires 0.25 mA and gives a low noise margin.
+#ifdef LEGACY_LAYOUT
+// for existing Whistle Switches
+#define ADC_CHANNEL     ADC_CHANNEL_DEFAULT // Channel ADC1 / PB2 defined in FrequencyDetector.h
+#define ADC_REFERENCE   DEFAULT
+#define RELAY_OUT       PIN_PB4
+#define LED_FEEDBACK    PIN_PB0
+#define DEBUG_PIN       PIN_PB1
+
+#else // LEGACY_LAYOUT
+/*
+ * Compatible to standard layout of Digispark boards - LED at PB1 - Button and signal are clamped by 3V3 zener diode!!!
+ *
+ * 20x amplification mode uses DC Level at pin PB3 instead of ground. And the DC level at PB4 should be 27.5 mV (550 mV / 20) higher,
+ * to have a full symmetrical range available for conversion.
+ * To generate this DC levels and still use PB3 as button input, the button must be active high
+ * and the 1k5 pullup must be connected to the other side of the schottky diode (to be active for programming by USB).
+ *
+ * for 1x amplification mode, button could be active low (in parallel to the zener),
+ * but at 5 volt the 1k5 pullup consumes 1 mA for nothing if not reconnected the other side of the schottky diode.
+ * So I decided to enforce the pullup reconnection and have the button active high also for 1x amplification.
+ */
 #define BUTTON_IS_ACTIVE_HIGH
 
-#define RELAY_OUT 0
-#define LED_FEEDBACK 1  // Digispark LED pin
-#define DEBUG_PIN 2
-#  if (defined(INFO) || defined(DEBUG) || defined(TRACE)) && (TX_PIN != DEBUG_PIN)
-#error "Change TX_PIN definition in TinySerialOut.h to match DEBUG_PIN."
-#  endif
-
-#define ADC_REFERENCE INTERNAL  // 1V1
-#ifdef USE_ATTINY85_20X_AMPLIFICATION
-// Here button pin is also used as differential input, therefore need inverse logic -> active is HIGH
-// Signal in clamped by 3V3 zener diode!!!
-#define ADC_CHANNEL 7           // Differential input (ADC2/PB4 - ADC3/PB3(Button)) * 20
+#if defined(DIGISTUMPCORE)
+#define RELAY_OUT       PB0
+#define LED_FEEDBACK    PB1  // Digispark LED pin
+#define DEBUG_PIN       PB2
 #else
-//x1 amplification here
-#define ADC_CHANNEL 2           // Channel ADC2 / PB4 - Signal in clamped by 3V3 zener diode!!!
-#endif // USE_ATTINY85_20X_AMPLIFICATION
+#define RELAY_OUT       PIN_PB0
+#define LED_FEEDBACK    PIN_PB1  // Digispark LED pin
+#define DEBUG_PIN       PIN_PB2
+#endif
 
-#ifdef MEASURE_TIMING
+#define ADC_REFERENCE   INTERNAL  // 1V1
+#  if defined(USE_ATTINY85_20X_AMPLIFICATION)
+#define ADC_CHANNEL     7           // Differential input (ADC2/PB4 - ADC3/PB3(Button)) * 20
+#  else
+// x1 amplification here
+#define ADC_CHANNEL     2           // Channel ADC2 / PB4 - Signal is clamped by 3V3 zener diode but should anyway stay below 1.1V :-)
+#  endif // USE_ATTINY85_20X_AMPLIFICATION
+#endif // LEGACY_LAYOUT
+
+#if (defined(INFO) || defined(DEBUG) || defined(TRACE) || defined(PRINT_INPUT_SIGNAL_TO_PLOTTER))
+#define TX_PIN          DEBUG_PIN // for ATtinySerialOut
+#include "ATtinySerialOut.hpp" // Available as Arduino library "ATtinySerialOut"
+#endif
+
+#if defined(MEASURE_TIMING)
 #define READ_SIGNAL_TIMING_OUTPUT_PIN LED_FEEDBACK
 #endif
 
 #endif // (__AVR_ATtiny85__)
 
-#if defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__)
+#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__)
 /*
  * NANO
  */
@@ -325,22 +355,24 @@ uint16_t predefinedRangesEnd[] = { 2050, 1680, 1480, 1280, 1130, 990, 1900, 1530
 #define LED_MATCH               9
 #define LED_HIGHER              10
 
-#define RELAY_OUT  11
-#define LED_FEEDBACK  LED_BUILTIN
+#define RELAY_OUT               11
+#define LED_FEEDBACK            LED_BUILTIN
 
-#define ADC_CHANNEL ADC_CHANNEL_DEFAULT // Channel ADC1
-#define ADC_REFERENCE INTERNAL // 1.1V
+#define ADC_CHANNEL             ADC_CHANNEL_DEFAULT // Channel ADC1
+#define ADC_REFERENCE           INTERNAL // 1.1V
 #define READ_SIGNAL_TIMING_OUTPUT_PIN 12
 #endif // (__AVR_ATmega328P__)
 
-#ifdef USE_ATTINY85_20X_AMPLIFICATION
-#define AVERAGE_LEVEL_DELTA_REQUIRED_FOR_OUTPUT 0x10 // high noise
+#if defined(USE_ATTINY85_20X_AMPLIFICATION)
+#define AVERAGE_LEVEL_DELTA_REQUIRED_FOR_OUTPUT 0x10 // to suppress noise for printing
 #else
-#define AVERAGE_LEVEL_DELTA_REQUIRED_FOR_OUTPUT 0x04 // lower noise
+#define AVERAGE_LEVEL_DELTA_REQUIRED_FOR_OUTPUT 0x04 // to suppress noise for printing
 #endif
 
-#define USE_BUTTON_1  // Enable code for button at INT1 (pin3 on 328P, PA3 on ATtiny167, PCINT0 / PCx for ATtinyX5)
-#include "EasyButtonAtInt01.cpp.h"
+#include "FrequencyDetector.hpp" // include sources
+
+#define USE_BUTTON_1  // Enable code for button at INT1 (pin3 on 328P, PA3 on ATtiny167, PB3/PCINT3 for ATtinyX5)
+#include "EasyButtonAtInt01.hpp"
 void handleButtonPress(bool aButtonToggleState);
 void handleButtonRelease(bool aButtonToggleState, uint16_t aButtonPressDurationMillis);
 EasyButton ButtonAtPin3(&handleButtonPress, &handleButtonRelease); // Only one button enabled -> button is connected to INT1
@@ -356,7 +388,7 @@ EasyButton ButtonAtPin3(&handleButtonPress, &handleButtonRelease); // Only one b
 #define MIN_NO_DROPOUT_MILLIS_BEFORE_ANY_MATCH 400
 #define MATCH_MILLIS_NEEDED_DEFAULT (1200 - MIN_NO_DROPOUT_MILLIS_BEFORE_ANY_MATCH) // Milliseconds of frequency detector indicating successful match before relay toggle
 #define MATCH_TO_LONG_MILLIS        1000    // max milliseconds for match condition true after relay toggled, otherwise switch back to relay state before
-#define RELAY_DEAD_MILLIS           800    // min milliseconds between 2 changes of relay state -> to avoid to fast relay switching
+#define RELAY_DEAD_MILLIS           800     // min milliseconds between 2 changes of relay state -> to avoid to fast relay switching
 #define BUTTON_DEBOUNCE_MILLIS      40      // must be smaller than 65 since delay micros has its limitations at 64k!
 #if RELAY_DEAD_MILLIS >= MATCH_TO_LONG_MILLIS
 #error MATCH_TO_LONG_MILLIS must be grater than RELAY_DEAD_MILLIS, otherwise toggling back on long match is rejected
@@ -364,11 +396,11 @@ EasyButton ButtonAtPin3(&handleButtonPress, &handleButtonRelease); // Only one b
 // Timeout for relay ON
 #define TIMEOUT_RELAY_ON_SIGNAL_MINUTES_MAX (1193 * 60) // -> 49.7 days
 // after this time, the relay is switched OFF and ON to signal timeout
-#define TIMEOUT_RELAY_ON_SIGNAL_MINUTES_1     120       // 2 hours timeout for state 1
-#define TIMEOUT_RELAY_ON_SIGNAL_MINUTES_2     (2*120)   // 4 hours timeout for state 2
-#define TIMEOUT_RELAY_ON_SIGNAL_MINUTES_3     (4*120)   // 8 hours timeout for state 2
-uint16_t sTimeoutRelayOnMinutesArray[] = { 0, TIMEOUT_RELAY_ON_SIGNAL_MINUTES_1, TIMEOUT_RELAY_ON_SIGNAL_MINUTES_2,
-TIMEOUT_RELAY_ON_SIGNAL_MINUTES_3 };
+#define TIMEOUT_RELAY_ON_SIGNAL_2_HOURS      (2*60)   // 2 hours timeout
+#define TIMEOUT_RELAY_ON_SIGNAL_4_HOURS      (4*60)   // 4 hours timeout
+#define TIMEOUT_RELAY_ON_SIGNAL_8_HOURS      (8*60)   // 8 hours timeout
+uint16_t sTimeoutRelayOnMinutesArray[] = { 0, TIMEOUT_RELAY_ON_SIGNAL_2_HOURS, TIMEOUT_RELAY_ON_SIGNAL_4_HOURS,
+TIMEOUT_RELAY_ON_SIGNAL_8_HOURS };
 #define TIMEOUT_RELAY_ON_MINUTES_ARRAY_SIZE  (sizeof(sTimeoutRelayOnMinutesArray)/sizeof(sTimeoutRelayOnMinutesArray[0]))
 
 #define TIMEOUT_RELAY_ON_INDEX_DISABLED 0
@@ -409,7 +441,6 @@ EEMEM EepromParameterStruct sPersistentParametersEEPROM;
  * States for main loop
  */
 enum MainStateEnum {
-    IN_SETUP,
     DETECT_FREQUENCY,
     PROGRAM_SIMPLE,
     PROGRAM_ADVANCED_FREQUENCY_RANGE,
@@ -427,7 +458,6 @@ struct WhistleSwitchControlStruct {
 
     uint32_t MillisAtLastRelayChange;
     //
-    bool sSignalAverageLevel; // Signal (Average level / 100) at startup
     bool RelayJustToggled; // do only one toggle per consecutive matches
     bool sMatchTooLongDetected;
     //
@@ -438,7 +468,7 @@ struct WhistleSwitchControlStruct {
     uint8_t ButtonPressCounter;
 
     int16_t MatchValidCount; // count for valid matches after last STATE_LED_OFF
-    int16_t MatchValidNeeded; // valid matches detected required for accepting match, i.e. for toggling relay := MillisNeededForValidMatch/timeOfReading
+    int16_t MatchValidRequired; // valid matches detected required for accepting match, i.e. for toggling relay := MillisNeededForValidMatch/timeOfReading
     uint16_t MillisNeededForValidMatch;
 
 } WhistleSwitchControl;
@@ -450,7 +480,7 @@ struct LedControlStruct {
 } LedControl;
 
 #if defined(INFO)
-uint16_t sLastAverageLevel; // for printSignalInfos
+uint16_t sLastAverageLevel = 0; // = 0 forces printSignalInfos() at first loop.
 #endif
 
 #define STR_HELPER(x) #x
@@ -489,7 +519,7 @@ void handleLedBlinkState() {
             }
         }
     }
-#if defined (TRACE) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(TRACE) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
     Serial.print(" LedCount=");
     Serial.print(LedControl.LedBlinkCount);
     Serial.print(" ButtonDuration=");
@@ -497,7 +527,7 @@ void handleLedBlinkState() {
     Serial.print(" Last=");
     Serial.print(ButtonAtPin3.ButtonLastChangeMillis);
     Serial.print(" State=");
-    Serial.println(ButtonAtPin3.ButtonStateIsActive);
+    Serial.println(ButtonAtPin3.readButtonState());
 #endif // TRACE
 }
 
@@ -510,11 +540,11 @@ void backToStateDetect() {
 
 void setMillisNeededForValidMatch(uint16_t aPeriodValidNeededMillis) {
     WhistleSwitchControl.MillisNeededForValidMatch = aPeriodValidNeededMillis;
-    WhistleSwitchControl.MatchValidNeeded = aPeriodValidNeededMillis / FrequencyDetectorControl.PeriodOfOneReadingMillis;
+    WhistleSwitchControl.MatchValidRequired = aPeriodValidNeededMillis / FrequencyDetectorControl.PeriodOfOneReadingMillis;
 
-#ifdef TRACE
+#if defined(TRACE)
     Serial.print("MatchValidNeeded=");
-    Serial.print(WhistleSwitchControl.MatchValidNeeded);
+    Serial.print(WhistleSwitchControl.MatchValidRequired);
     Serial.print(F(" MillisNeededForValidMatch="));
     Serial.println(WhistleSwitchControl.MillisNeededForValidMatch);
 #endif
@@ -527,8 +557,8 @@ void eepromWriteParameter() {
     sPersistentParameters.RelayOnTimeoutIndex = WhistleSwitchControl.RelayOnTimeoutIndex;
     eeprom_write_block((void*) &sPersistentParameters, &sPersistentParametersEEPROM, sizeof(EepromParameterStruct));
 
-#ifdef INFO
-    Serial.print(F("FrequencyMin="));
+#if defined(INFO)
+    Serial.print(F("eepromWrite: FrequencyMin="));
     Serial.print(sPersistentParameters.FrequencyMin);
     Serial.print(F(" FrequencyMax="));
     Serial.print(sPersistentParameters.FrequencyMax);
@@ -543,7 +573,7 @@ void eepromWriteParameter() {
 
 void eepromReadParameter() {
     // read parameter structure except timeout
-#ifdef DEBUG
+#if defined(DEBUG)
     Serial.print(F("&sPersistentParametersEEPROMs="));
     Serial.println((uint16_t) &sPersistentParametersEEPROM, HEX);
 #endif
@@ -566,7 +596,7 @@ void eepromReadParameter() {
         FrequencyDetectorControl.FrequencyMatchHigh = predefinedRangesEnd[1];
         WhistleSwitchControl.MillisNeededForValidMatch = MATCH_MILLIS_NEEDED_DEFAULT;
         WhistleSwitchControl.RelayOnTimeoutIndex = TIMEOUT_RELAY_ON_INDEX_DEFAULT; // set to 8 hours
-#ifdef INFO
+#if defined(INFO)
         Serial.println(F("EEPROM values were wrong, store default values to EEPROM"));
 #endif
         eepromWriteParameter();
@@ -589,7 +619,7 @@ void signalRangeIndexByLed() {
         }
     }
 
-#ifdef INFO
+#if defined(INFO)
     Serial.print(F("Frequency match range index="));
     Serial.println(i + 1);
 #endif
@@ -604,11 +634,17 @@ void signalRangeIndexByLed() {
 }
 
 /*
+ * Display AverageLevel / 100
  * Range is from 0 to 10. Values of 4 to 6 are optimal.
+ * 100 - 199 -> 1x
+ * 300 - 399 -> 3x
+ * 400 - 499 -> 4x
+ * 500 - 599 -> 5x
+ * ...
+ * 900 - 999 -> 9x
  */
 void signalAverageLevelByLed() {
-    // display AverageLevel / 100
-    for (uint8_t i = 0; i <= (FrequencyDetectorControl.AverageLevel + 50) / 100; ++i) {
+    for (uint8_t i = 0; i < FrequencyDetectorControl.AverageLevel; i+=100) {
         digitalWriteFast(LED_FEEDBACK, HIGH);
         delay(TIMING_FREQUENCY_LOWER_MILLIS * 4);
         digitalWriteFast(LED_FEEDBACK, LOW);
@@ -617,8 +653,8 @@ void signalAverageLevelByLed() {
 }
 
 void signalTimeoutByLed() {
-#ifdef INFO
-    Serial.print(F("RelayOnTimeoutIndex="));
+#if defined(INFO)
+    Serial.print(F("Relay ON timeout index="));
     Serial.println(WhistleSwitchControl.RelayOnTimeoutIndex);
 #endif
 
@@ -641,14 +677,14 @@ void signalTimeoutByLed() {
  */
 void toggleRelay() {
 
-#if defined (DEBUG)
+#if defined(DEBUG)
     Serial.print(F("In toggleRelay() RelayJustToggled="));
     Serial.print(WhistleSwitchControl.RelayJustToggled);
     Serial.println();
 #endif
 
     if (WhistleSwitchControl.TimeoutSignaledOnce) {
-#if defined (INFO)
+#if defined(INFO)
         Serial.println(F("Reset relay timeout"));
 #endif
         /*
@@ -674,13 +710,13 @@ void toggleRelay() {
              */
             digitalToggleFast(RELAY_OUT);
             WhistleSwitchControl.RelayJustToggled = true;
-#if defined (INFO)
+#if defined(INFO)
             Serial.println(F("Toggle relay now"));
             sLastAverageLevel = 0; // To trigger printSignalInfos() in order to have information about signal level
 #endif
             WhistleSwitchControl.MillisAtLastRelayChange = millis();
         } else {
-#if defined (INFO)
+#if defined(INFO)
             Serial.println(F("In relay dead time -> do not toggle"));
 #endif
         }
@@ -701,7 +737,7 @@ void processMatchState() {
         if (tLedBlinkMillis < TIMING_FREQUENCY_HIGHER_MILLIS_MINIMUM) {
             tLedBlinkMillis = TIMING_FREQUENCY_HIGHER_MILLIS_MINIMUM;
         }
-#if defined (DEBUG) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(DEBUG) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
         Serial.print(F("tLedBlinkMillis="));
         Serial.println(tLedBlinkMillis);
 #endif
@@ -711,7 +747,7 @@ void processMatchState() {
         // LOWER -> set blink frequency according to gap between real and minimal-match pitch
         uint16_t tLedBlinkMillis = TIMING_FREQUENCY_LOWER_MILLIS
                 + ((FrequencyDetectorControl.FrequencyMatchLow - FrequencyDetectorControl.FrequencyFiltered) / 2);
-#if defined (DEBUG) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(DEBUG) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
         Serial.print(F("tLedBlinkMillis="));
         Serial.println(tLedBlinkMillis);
 #endif
@@ -732,7 +768,7 @@ void processMatchState() {
     if (WhistleSwitchControl.MatchValidCount < 0) {
         WhistleSwitchControl.MatchValidCount = 0;
     }
-    if (WhistleSwitchControl.MatchValidCount >= WhistleSwitchControl.MatchValidNeeded) {
+    if (WhistleSwitchControl.MatchValidCount >= WhistleSwitchControl.MatchValidRequired) {
         /*
          * valid match here  - "RelayJustToggled = true" is be set in toggleRelay()
          */
@@ -751,7 +787,7 @@ void processMatchState() {
             /*
              * match lasted too long, reset relay to previous state only once
              */
-#if defined (INFO)
+#if defined(INFO)
             Serial.println(F("Match too long, switch to previous state"));
 #endif
             toggleRelay();
@@ -770,7 +806,7 @@ void printSignalInfos() {
     Serial.print(FrequencyDetectorControl.TriggerLevel);
     Serial.print(F(" Avg="));
     Serial.print(FrequencyDetectorControl.AverageLevel);
-    Serial.print(F(" D="));
+    Serial.print(F(" Delta="));
     Serial.print(FrequencyDetectorControl.SignalDelta);
     Serial.print(F(" F="));
     Serial.println(FrequencyDetectorControl.FrequencyRaw);
@@ -797,7 +833,7 @@ void printInfos() {
         sAverageLevelPrinted = FrequencyDetectorControl.TriggerLevel;
         sSignalDeltaPrinted = FrequencyDetectorControl.SignalDelta;
 
-#  ifdef TRACE
+#  if defined(TRACE)
 #    if defined(__AVR_ATtiny85__)
         writeString(F("FF="));
         writeUnsignedInt(FrequencyDetectorControl.FrequencyFiltered);
@@ -847,7 +883,7 @@ void MyInit(void) {
  * Setup section
  *******************************************************************************************/
 void setup() {
-#ifdef INFO
+#if defined(INFO)
     uint8_t tMCUSRStored = 0;
     if (MCUSR != 0) {
         tMCUSRStored = MCUSR; // content of MCUSR register at startup
@@ -863,6 +899,7 @@ void setup() {
      * and uses fastest prescaler value (approximately 15 ms)
      */
     wdt_disable();
+
 #if defined(__AVR_ATtiny85__)
 #  if defined(INFO) || defined(DEBUG) || defined(TRACE)
     initTXPin();
@@ -872,8 +909,8 @@ void setup() {
 
 #else // defined(__AVR_ATtiny85__)
     Serial.begin(115200);
-#  if defined(__AVR_ATmega32U4__) || defined(SERIAL_USB) || defined(SERIAL_PORT_USBVIRTUAL)
-    delay(2000); // To be able to connect Serial monitor after reset and before first printout
+#if defined(__AVR_ATmega32U4__) || defined(SERIAL_PORT_USBVIRTUAL) || defined(SERIAL_USB) /*stm32duino*/|| defined(USBCON) /*STM32_stm32*/|| defined(SERIALUSB_PID) || defined(ARDUINO_attiny3217)
+    delay(4000); // To be able to connect Serial monitor after reset or power up and before first print out. Do not wait for an attached Serial Monitor!
 #  endif
 
     pinMode(LED_LOWER, OUTPUT);
@@ -888,12 +925,22 @@ void setup() {
     pinModeFast(LED_FEEDBACK, OUTPUT);
     pinModeFast(RELAY_OUT, OUTPUT);
 
-    WhistleSwitchControl.MainState = IN_SETUP;
-
-#ifdef INFO
+#if defined(INFO)
     // Just to know which program is running on my Arduino
     Serial.print(F("\r\nSTART WhistleSwitch.cpp\r\nVersion " VERSION_EXAMPLE " from " __DATE__"\r\nMCUSR=0x"));
-    Serial.println(tMCUSRStored, HEX);
+    Serial.print(tMCUSRStored, HEX);
+    Serial.print(F(" ADC channel="));
+    Serial.print(ADC_CHANNEL);
+#if defined(USE_ATTINY85_20X_AMPLIFICATION)
+    Serial.print(F(", 20x"));
+#else
+    Serial.print(F(", 1x"));
+#endif
+    Serial.print(F(" amplification, relay pin=" STR(RELAY_OUT) ", LED pin=" STR(LED_FEEDBACK) ", button pin=" STR(INT1_PIN)));
+#if defined(DEBUG_PIN)
+    Serial.print(F(", TX pin=" STR(DEBUG_PIN)));
+#endif
+    Serial.println();
 #  if defined(__AVR_ATtiny85__)
     printBODLevel();
 #  endif
@@ -910,13 +957,13 @@ void setup() {
 // get frequency parameter from eeprom
     eepromReadParameter();
 
-#ifdef INFO
-    Serial.print(F("Free Ram/Stack[bytes]="));
-    Serial.println(getFreeRam());
+#if defined(INFO)
+    Serial.print(F("Current free Heap / Stack[bytes]="));
+    Serial.println(getCurrentFreeHeapOrStack());
 
-    Serial.println(
-            F(
-                    "Delay initial=" STR(MIN_NO_DROPOUT_MILLIS_BEFORE_ANY_MATCH) "ms total=" STR(MATCH_MILLIS_NEEDED_DEFAULT + MIN_NO_DROPOUT_MILLIS_BEFORE_ANY_MATCH) "ms"));
+    Serial.print(F("Tone detection no dropout before display=" STR(MIN_NO_DROPOUT_MILLIS_BEFORE_ANY_MATCH) "ms, before relay="));
+    Serial.print(MATCH_MILLIS_NEEDED_DEFAULT + MIN_NO_DROPOUT_MILLIS_BEFORE_ANY_MATCH);
+    Serial.println(F("ms"));
 
     Serial.print(F("Frequency min="));
     Serial.print(FrequencyDetectorControl.FrequencyMatchLow);
@@ -924,15 +971,34 @@ void setup() {
     Serial.print(FrequencyDetectorControl.FrequencyMatchHigh);
     Serial.println(F("Hz"));
 #endif
-    signalRangeIndexByLed();
-    delay(1000);
+
+    readSignal(); // initialize values
 
     /*
-     * signal timeout state with short pulse
+     * If button is pressed while booting,
+     * the average DC level is signaled by LED,
+     * otherwise frequency range index and signal timeout index
      */
-    signalTimeoutByLed();
+    if (ButtonAtPin3.readButtonState()) {
+        while(ButtonAtPin3.readButtonState()); // wait for button to be released
+        delay(500); // wait a half second for DC Level at button pin to stabilize
+        readSignal(); // Read values for average
+        printSignalInfos();
+        signalAverageLevelByLed();
+
+    } else {
+        /*
+         * Signal frequency range index
+         */
+        signalRangeIndexByLed();
+        delay(1000);
+
+        /*
+         * signal timeout index with short pulse
+         */
+        signalTimeoutByLed();
+    }
     delay(1000);
-    readSignal(); // initialize values
 
 //initPinChangeInterrupt
 #if defined(__AVR_ATtiny85__)
@@ -951,11 +1017,6 @@ void setup() {
     backToStateDetect();
     //    ButtonAtPin3.ButtonStateHasJustChanged = false;
     //    WhistleSwitchControl.TimeoutSignaledOnce = false;
-
-    if (WhistleSwitchControl.sSignalAverageLevel) {
-        readSignal();
-        signalAverageLevelByLed();
-    }
 }
 
 /************************************************************************
@@ -963,7 +1024,7 @@ void setup() {
  ************************************************************************/
 void loop(void) {
 
-#ifdef INFO
+#if defined(INFO)
     static uint8_t sLastPrintedMainState;
 
     if (WhistleSwitchControl.MainState != sLastPrintedMainState) {
@@ -1022,10 +1083,10 @@ void loop(void) {
             }
             WhistleSwitchControl.MainState = PROGRAM_WAIT_FOR_FEEDBACK_END;
 
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
             Serial.println(F("Programming timeout"));
 #endif
-#if defined (DEBUG) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(DEBUG) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
             Serial.print(F("millis()="));
             Serial.print(millis());
             Serial.print(F(" ButtonReleaseMillis="));
@@ -1055,7 +1116,7 @@ void checkForRelayOnTimeout() {
                  */
                 if (tMillisSinceLastRelayChange
                         > WhistleSwitchControl.RelayOnTimeoutMillis + (TIMEOUT_RELAY_SIGNAL_TO_OFF_MINUTES * 60000L)) {
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
                     Serial.println(F("Timeout detected -> switch off"));
                     Serial.print(F("MillisAtLastRelayChange="));
                     Serial.println(WhistleSwitchControl.MillisAtLastRelayChange);
@@ -1067,7 +1128,7 @@ void checkForRelayOnTimeout() {
                     WhistleSwitchControl.TimeoutSignaledOnce = false;
                 } else if (!WhistleSwitchControl.TimeoutSignaledOnce) {
                     WhistleSwitchControl.TimeoutSignaledOnce = true;
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
                     Serial.println(F("Timeout detected. -> signal it"));
 #endif
                     digitalWriteFast(RELAY_OUT, LOW);
@@ -1086,11 +1147,11 @@ void detectFrequency() {
      * readSignal() needs 26,6 ms for one loop at attiny85 1 MHz
      * Remaining of loop needs 260 cycles, but with debug output at 115200Baud it needs 7500 cycles.
      */
-#ifdef MEASURE_TIMING
+#if defined(MEASURE_TIMING)
     digitalWriteFast(TIMING_OUTPUT_PIN, HIGH);
 #endif
     uint16_t tFrequency = readSignal(); // needs 26.6 millis
-#ifdef MEASURE_TIMING
+#if defined(MEASURE_TIMING)
             digitalWriteFast(TIMING_OUTPUT_PIN, LOW);
 #endif
 
@@ -1132,11 +1193,11 @@ void detectFrequency() {
     }
 #endif
 
-#ifdef DEBUG
+#if defined(DEBUG)
     printInfos();
 #endif
 
-#if defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__)
+#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__)
     /*
      * Show state on the LEDS
      */
@@ -1174,7 +1235,7 @@ void detectFrequency() {
     processMatchState();
 }
 
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
 void printSimpleProgrammingUsage() {
     Serial.println(F("\r\nEntered simple programming state."));
     Serial.println(
@@ -1202,14 +1263,14 @@ void printAdvancedProgrammingUsage() {
 void signalLongButtonPress() {
     if (ButtonAtPin3.ButtonPressDurationMillis >= BUTTON_PUSH_ENTER_PROGRAM_SIMPLE_MILLIS) {
         if (WhistleSwitchControl.FeedbackState == DETECT_FREQUENCY) {
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
             printSimpleProgrammingUsage();
 #endif
             WhistleSwitchControl.FeedbackState = PROGRAM_SIMPLE; // to avoid to enter this branch again
             setFeedbackLedBlinkState(TIMING_FREQUENCY_LOWER_MILLIS * 3, 1);
         } else if ((WhistleSwitchControl.FeedbackState == PROGRAM_SIMPLE)
                 && (ButtonAtPin3.ButtonPressDurationMillis >= BUTTON_PUSH_ENTER_PROGRAM_ADVANCED_MILLIS)) {
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
             printAdvancedProgrammingUsage();
 #endif
             WhistleSwitchControl.FeedbackState = PROGRAM_ADVANCED_FREQUENCY_RANGE; // to avoid to enter this branch again
@@ -1250,10 +1311,10 @@ void detectSimpleProgrammingStateTimeout() {
         // echo recognized button presses
         setFeedbackLedBlinkState(TIMING_FREQUENCY_LOWER_MILLIS * 3, WhistleSwitchControl.ButtonPressCounter);
         WhistleSwitchControl.MainState = PROGRAM_WAIT_FOR_FEEDBACK_END;
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
         Serial.println(F("Simple programming timeout"));
 #endif
-#if defined (DEBUG) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(DEBUG) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
         Serial.print(F("millis()="));
         Serial.print(millis());
         Serial.print(F(" ButtonReleaseMillis="));
@@ -1272,10 +1333,6 @@ void detectSimpleProgrammingStateTimeout() {
  */
 void handleButtonPress(bool __attribute__((unused)) aButtonToggleState) {
     switch (WhistleSwitchControl.MainState) {
-    case IN_SETUP:
-        WhistleSwitchControl.sSignalAverageLevel = true;
-        break;
-
     case DETECT_FREQUENCY:
         if (ButtonAtPin3.checkForDoublePress(RESET_WAIT_TIMEOUT_MILLIS)) {
             doReset();
@@ -1284,7 +1341,7 @@ void handleButtonPress(bool __attribute__((unused)) aButtonToggleState) {
 
     case PROGRAM_SIMPLE:
         WhistleSwitchControl.ButtonPressCounter++;
-#ifdef INFO
+#if defined(INFO)
         Serial.print("Count=");
         Serial.println(WhistleSwitchControl.ButtonPressCounter);
 #endif
@@ -1315,7 +1372,7 @@ void handleButtonPress(bool __attribute__((unused)) aButtonToggleState) {
                 }
             }
 
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
             Serial.print(F("Advanced: last="));
             Serial.print(WhistleSwitchControl.FrequencyLast);
             Serial.print(F(" act="));
@@ -1375,7 +1432,7 @@ void handleButtonRelease(bool __attribute__((unused)) aButtonToggleState, uint16
 
     case PROGRAM_ADVANCED_FREQUENCY_DURATION:
         setMillisNeededForValidMatch(aButtonPressDurationMillis);
-#if defined (INFO) && (defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__))
+#if defined(INFO) && (defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__))
         Serial.print(F("Duration="));
         Serial.print(aButtonPressDurationMillis);
         Serial.println(F(" ms"));
@@ -1396,7 +1453,7 @@ void handleButtonRelease(bool __attribute__((unused)) aButtonToggleState, uint16
 
     }
 
-#if defined (INFO)
+#if defined(INFO)
     Serial.print(F("ButtonPressDurationMillis="));
     Serial.print(aButtonPressDurationMillis);
     Serial.print(F(" MainState="));
@@ -1408,15 +1465,15 @@ void handleButtonRelease(bool __attribute__((unused)) aButtonToggleState, uint16
  * Reset here. This in turn shows the programmed state.
  */
 void doReset() {
-#if defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__)
-#  if defined (INFO)
+#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__)
+#  if defined(INFO)
     Serial.println("Simulate reset");
     Serial.flush();
 #  endif
     // Jump to 0x0000
     void (*ptrToReset)() = 0;// pointer to reset
     (*ptrToReset)();// reset!
-#else // defined (__AVR_ATmega328P__) || defined (__AVR_ATmega328__)
+#else // defined(__AVR_ATmega328P__) || defined(__AVR_ATmega328__)
     // second push happened before timeout -> perform reset (this does not work with arduino bootloader)
     wdt_enable(WDTO_500MS);
     while (1) {

@@ -13,16 +13,16 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  See the GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program.  If not, see <http://www.gnu.org/licenses/gpl.html>.
+ *  along with this program. If not, see <http://www.gnu.org/licenses/gpl.html>.
  *
  */
 
-#ifndef SHOWINFO_H_
-#define SHOWINFO_H_
+#ifndef _SHOW_INFO_H
+#define _SHOW_INFO_H
 
 #include <Arduino.h>
 
@@ -59,7 +59,7 @@ void printMCUSR(uint8_t aMCUSRContent);
 void printBODSFlagExistence();
 #endif //  defined(__AVR_ATtiny85__) || defined(__AVR_ATtiny167__) || defined(__AVR_ATtiny87__)
 
-#if !defined (__AVR_ATmega32U4__)
+#if !defined(__AVR_ATmega32U4__)
 #  if defined(__AVR_ATtiny85__) || defined(__AVR_ATtiny167__) || defined(__AVR_ATtiny87__)
 /*
  * Short version using printHex and saving Flash
@@ -85,8 +85,6 @@ void Timer2RegisterDump(void);
 
 void TimerRegisterDump(void);
 #  endif
-#endif // !defined (__AVR_ATmega32U4__)
+#endif // !defined(__AVR_ATmega32U4__)
 
-#endif /* SHOWINFO_H_ */
-
-#pragma once
+#endif // _SHOW_INFO_H

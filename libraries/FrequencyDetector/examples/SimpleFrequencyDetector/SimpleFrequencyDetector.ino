@@ -5,7 +5,7 @@
  * If frequency is in the range of 1400 to 1700 Hz, the Arduino built in LED will light up.
  *
  *
- *  Copyright (C) 2014  Armin Joachimsmeyer
+ *  Copyright (C) 2014-2023  Armin Joachimsmeyer
  *  Email: armin.joachimsmeyer@gmail.com
  *
  *  This file is part of Arduino-FrequencyDetector https://github.com/ArminJo/Arduino-FrequencyDetector.
@@ -17,11 +17,11 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  See the GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program.  If not, see <http://www.gnu.org/licenses/gpl.html>.
+ *  along with this program. If not, see <http://www.gnu.org/licenses/gpl.html>.
  *
  */
 
@@ -52,30 +52,44 @@
 #define LED_PLAUSI_FIRST  7
 #define LED_PLAUSI_DISTRIBUTION  8
 
-#define INFO
+//#define INFO
 #if ! defined(LED_BUILTIN) && defined(ARDUINO_AVR_DIGISPARK)
+#  if defined(DIGISTUMPCORE)
 #define LED_BUILTIN PB1
+#  else
+#define LED_BUILTIN PIN_PB1
+#  endif
 #endif
 
 #if defined(__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
-#include "ATtinySerialOut.h" // Available as Arduino library
+#  if defined(DIGISTUMPCORE)
+#define TX_PIN PB2 // (package pin 7 on Tiny85) - can use one of PB0 to PB4 (+PB5) here
+#  endif
+#include "ATtinySerialOut.hpp" // Available as Arduino library "ATtinySerialOut"
 #endif
 
-#include "FrequencyDetector.h"
+//#define PRINT_INPUT_SIGNAL_TO_PLOTTER     // If enabled, store SIGNAL_PLOTTER_BUFFER_SIZE input samples for printing to Arduino Plotter
+#include "FrequencyDetector.hpp"
+
+//#define PRINT_RESULTS_TO_SERIAL_PLOTTER   // If enabled, this example program prints generated output values to Arduino Serial Plotter (Ctrl-Shift-L)
+#if defined(PRINT_INPUT_SIGNAL_TO_PLOTTER) && defined(PRINT_RESULTS_TO_SERIAL_PLOTTER)
+#error Please define only one of PRINT_INPUT_SIGNAL_TO_PLOTTER or PRINT_RESULTS_TO_SERIAL_PLOTTER
+#endif
 
 #if defined(INFO)
-#include "AVRUtils.h" // for getFreeRam()
+#include "AVRUtils.h" // for printRAMInfo()
 #endif
 
 void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.begin(115200);
-#if defined(__AVR_ATmega32U4__) || defined(SERIAL_USB) || defined(SERIAL_PORT_USBVIRTUAL)
-    delay(2000); // To be able to connect Serial monitor after reset and before first printout
+#if defined(__AVR_ATmega32U4__) || defined(SERIAL_PORT_USBVIRTUAL) || defined(SERIAL_USB) /*stm32duino*/|| defined(USBCON) /*STM32_stm32*/|| defined(SERIALUSB_PID) || defined(ARDUINO_attiny3217)
+    delay(4000); // To be able to connect Serial monitor after reset or power up and before first print out. Do not wait for an attached Serial Monitor!
 #endif
     // Just to know which program is running on my Arduino
+#if !defined(PRINT_INPUT_SIGNAL_TO_PLOTTER)
     Serial.println(F("START " __FILE__ " from " __DATE__ "\r\nUsing library version " VERSION_FREQUENCY_DETECTOR));
-
+#endif
     // initialize the digital pin as an output.
     pinMode(LED_PLAUSI_FIRST, OUTPUT);
     pinMode(LED_PLAUSI_DISTRIBUTION, OUTPUT);
@@ -96,9 +110,9 @@ void setup() {
 
     // set my Frequency range
     setFrequencyDetectorMatchValues(1400, 1700);
-#ifdef INFO
-    Serial.print(F("Free Ram/Stack[bytes]="));
-    Serial.println(getFreeRam());
+#if defined(INFO)
+    Serial.print(F("Current free Heap / Stack[bytes]="));
+    Serial.println(getCurrentFreeHeapOrStack());
 #endif
 }
 
@@ -154,7 +168,7 @@ void loop() {
             // signal match
             digitalWrite(LED_BUILTIN, HIGH);
         }
-#if ! defined(PRINT_RESULTS_TO_SERIAL_PLOTTER)
+#if !defined(PRINT_RESULTS_TO_SERIAL_PLOTTER) && !defined(PRINT_INPUT_SIGNAL_TO_PLOTTER)
     } else {
         // incompatible with Serial Plotter
         Serial.println(reinterpret_cast<const __FlashStringHelper *>(ErrorStrings[tFrequency]));

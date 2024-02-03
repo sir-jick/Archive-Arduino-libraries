@@ -13,16 +13,16 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  See the GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program.  If not, see <http://www.gnu.org/licenses/gpl.html>.
+ *  along with this program. If not, see <http://www.gnu.org/licenses/gpl.html>.
  *
  */
 
-#ifndef MILLIS_UTILS_H_
-#define MILLIS_UTILS_H_
+#ifndef _MILLIS_UTILS_H
+#define _MILLIS_UTILS_H
 
 #include <stdint.h>
 #if defined(__AVR__)
@@ -35,7 +35,8 @@
 #if defined(__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)  || defined(__AVR_ATtiny87__) || defined(__AVR_ATtiny167__)
 #define timer0_millis millis_timer_millis // The ATTinyCore + Digispark libraries use this variable name in wiring.c
 #endif
-#if defined(TIMSK0) && !defined(TIMSK) // some ATtinys
+
+#if defined(TIMSK0) && !defined(TIMSK) // some ATtinys and ATmega328
 #define TIMSK TIMSK0
 #endif
 
@@ -43,20 +44,23 @@
     // Digispark uses timer1 for millis()
 #define TOIE TOIE1
 #else
-#define TOIE TOIE0
+#define TOIE TOIE0 // Assume timer 0 for millis()
 #endif
 
 extern volatile unsigned long timer0_millis;
 
+void delayAndCallFunctionEveryMillis(unsigned int aDelayMillis, void (*aDelayCallback)(void));
+
 void disableMillisInterrupt();
 void addToMillis(uint16_t aMillisToAdd);
 void enableMillisInterrupt(uint16_t aMillisToAddForCompensation = 0);
+
+void speedTestWith1kCalls(Print *aSerial, void (*aFunctionUnderTest)(void));
 #endif //  defined(__AVR__)
 
 void delayMilliseconds(unsigned int aMillis);
 bool areMillisGone(unsigned int aMillis);
 bool areMillisGone(unsigned int aMillis, unsigned long * aLastMillisPtr);
 
-#endif // MILLIS_UTILS_H_
 
-#pragma once
+#endif // _MILLIS_UTILS_H

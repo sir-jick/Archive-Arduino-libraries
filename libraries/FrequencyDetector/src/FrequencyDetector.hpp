@@ -1,9 +1,9 @@
 /**
- * FrequencyDetector.cpp
+ * FrequencyDetector.hpp
  *
  * Analyzes a microphone signal and outputs the detected frequency. It simply counts zero crossings and do not use FFT.
  * The ADC sample data is NOT stored in RAM, only the period lengths are stored in the PeriodLength[] array,
- * which is a byte array and has the size of NUMBER_OF_SAMPLES / 8.
+ * which is a byte array and has the size of NUMBER_OF_2_COMPRESSED_SAMPLES / 8.
  *
  * The timer 0 interrupt, which counts the milliseconds, is disabled during reading and enabled afterwards!
  * The value of millis() is adjusted after reading.
@@ -11,7 +11,7 @@
  *
  * By enabling PRINT_INPUT_SIGNAL_TO_PLOTTER it can be used as simple oscilloscope.
  *
- *  Copyright (C) 2014-2020  Armin Joachimsmeyer
+ *  Copyright (C) 2014-2023  Armin Joachimsmeyer
  *  Email: armin.joachimsmeyer@gmail.com
  *
  *  This file is part of Arduino-FrequencyDetector https://github.com/ArminJo/Arduino-FrequencyDetector.
@@ -23,11 +23,11 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  See the GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program.  If not, see <http://www.gnu.org/licenses/gpl.html>.
+ *  along with this program. If not, see <http://www.gnu.org/licenses/gpl.html>.
  *
  *  FEATURES;
  *  readSignal() is the ADC read routine, which reads 1024/512 samples and computes frequency of signal.
@@ -40,6 +40,9 @@
  *  and also low pass filters the result for smooth transitions between the 3 match states (lower, match, greater)
  *
  */
+
+#ifndef _FREQUENCY_DETECTOR_HPP
+#define _FREQUENCY_DETECTOR_HPP
 
 #include <Arduino.h>
 
@@ -55,13 +58,21 @@
 #if defined(MEASURE_READ_SIGNAL_TIMING)
 #include "digitalWriteFast.h"
 // Pin is initialized at setFrequencyDetectorReadingValues().
-#  ifndef READ_SIGNAL_TIMING_OUTPUT_PIN
+#  if !defined(READ_SIGNAL_TIMING_OUTPUT_PIN)
 #    if (defined(__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__))
 #define READ_SIGNAL_TIMING_OUTPUT_PIN 1  // use pin 1 / LED_BUILTIN for Digispark
 #    else
 #define READ_SIGNAL_TIMING_OUTPUT_PIN 12  // use pin 12
 #    endif
 #  endif
+#endif
+
+// definitions from <wiring_private.h>
+#if !defined(cbi)
+#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
+#endif
+#if !defined(sbi)
+#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
 
 #include "MillisUtils.h" // for timer0_millis
@@ -71,7 +82,7 @@
 
 FrequencyDetectorControlStruct FrequencyDetectorControl;
 
-const char* ErrorStrings[] = { ErrorString_0, ErrorString_1, ErrorString_2, ErrorString_3, ErrorString_4 };
+const char *ErrorStrings[] = { ErrorString_0, ErrorString_1, ErrorString_2, ErrorString_3, ErrorString_4 };
 
 // Union to speed up the combination of low and high bytes to a word
 // it is not optimal since the compiler still generates 2 unnecessary moves
@@ -83,7 +94,7 @@ union Myword {
     } byte;
     uint16_t UWord;
     int16_t Word;
-    uint8_t * BytePointer;
+    uint8_t *BytePointer;
 };
 
 /****************************************************************
@@ -121,11 +132,11 @@ void setFrequencyDetectorReadingPrescaleValue(uint8_t aADCPrescalerValue) {
     //Formula is F_CPU / (PrescaleFactor * 13)
     FrequencyDetectorControl.PeriodOfOneSampleMicros = ((1 << aADCPrescalerValue) * 13) / (F_CPU / 1000000L);
     FrequencyDetectorControl.PeriodOfOneReadingMillis = ((FrequencyDetectorControl.PeriodOfOneSampleMicros
-            * (uint32_t) NUMBER_OF_SAMPLES) + CLOCKS_FOR_READING_NO_LOOP) / 1000;
+            * (uint32_t) NUMBER_OF_2_COMPRESSED_SAMPLES) + CLOCKS_FOR_READING_NO_LOOP) / 1000;
     uint32_t tFrequencyOfOneSample = 1000000L / FrequencyDetectorControl.PeriodOfOneSampleMicros;
     FrequencyDetectorControl.FrequencyOfOneSample = tFrequencyOfOneSample;
 
-#ifdef INFO
+#if defined(INFO)
     Serial.print(F("SamplePeriod="));
     Serial.print(FrequencyDetectorControl.PeriodOfOneSampleMicros);
     Serial.println(F("us"));
@@ -161,11 +172,11 @@ bool setFrequencyDetectorDropoutTimes(uint16_t aMinMatchNODropoutMillis, uint16_
 
         tRetval = true;
     } else {
-#ifdef INFO
+#if defined(INFO)
         Serial.println(F("Error. Values not set! Must call setFrequencyDetectorReadingPrescaleValue() before!"));
 #endif
     }
-#ifdef INFO
+#if defined(INFO)
     Serial.print(F("MinMatchNODropoutCount="));
     Serial.print(FrequencyDetectorControl.MinMatchNODropoutCount);
     Serial.print(F(" MaxMatchDropoutCount="));
@@ -197,7 +208,7 @@ void setFrequencyDetectorReadingDefaults() {
 uint16_t sReadValueBuffer[SIGNAL_PLOTTER_BUFFER_SIZE];
 #endif
 /*
- * ADC read routine reads NUMBER_OF_SAMPLES (1024/512) samples and computes:
+ * ADC read routine reads NUMBER_OF_2_COMPRESSED_SAMPLES (1024/512) samples and computes:
  * - FrequencyDetectorControl.FrequencyRaw - Frequency of signal
  * or error value SIGNAL_STRENGTH_LOW if signal is too weak
  *
@@ -223,12 +234,10 @@ uint16_t sReadValueBuffer[SIGNAL_PLOTTER_BUFFER_SIZE];
  */
 uint16_t readSignal() {
     Myword tUValue;
-    /*
-     * disable Timer0 (millis()) overflow interrupt
-     */
-    disableMillisInterrupt();
 
-//  ADCSRB = 0; // free running mode  - is default
+    disableMillisInterrupt(); // disable Timer0 (millis()) overflow interrupt
+
+//  ADCSRB = 0; // free running mode  - not required, since it is default
     ADCSRA = ((1 << ADEN) | (1 << ADSC) | (1 << ADATE) | (1 << ADIF) | FrequencyDetectorControl.ADCPrescalerValue);
 
     bool tTriggerSearchStart = true;
@@ -241,14 +250,14 @@ uint16_t readSignal() {
     uint32_t tSumOfSampleValues = 0;
 
     uint8_t tPeriodCount = 0;
-    // requires 30 bytes more FLASH but speeds up loop by 9 cycles
+    // requires 30 bytes more program memory but speeds up loop by 9 cycles
     uint16_t tTriggerLevelLower = FrequencyDetectorControl.TriggerLevelLower;
     uint16_t tTriggerLevel = FrequencyDetectorControl.TriggerLevel;
 
     /*
      * Read 512/1024 samples but only store periods
      */
-    for (uint16_t i = 0; i < NUMBER_OF_SAMPLES; i++) {
+    for (unsigned int i = 0; i < NUMBER_OF_2_COMPRESSED_SAMPLES; i++) {
         // loop takes around 39 cycles at least and we have 52 cycles @1MHz between each conversion
         /*
          * wait for free running conversion to finish.
@@ -264,7 +273,7 @@ uint16_t readSignal() {
         // Get value
         tUValue.byte.LowByte = ADCL;
         tUValue.byte.HighByte = ADCH;
-        ADCSRA |= (1 << ADIF); // clear bit to recognize next conversion has finished
+        ADCSRA |= (1 << ADIF); // clear bit to recognize next conversion has finished with "loop_until_bit_is_set(ADCSRA, ADIF)".
 
 #if defined(PRINT_INPUT_SIGNAL_TO_PLOTTER)
         if (i < SIGNAL_PLOTTER_BUFFER_SIZE) {
@@ -316,7 +325,7 @@ uint16_t readSignal() {
 
     ADCSRA &= ~(1 << ADATE); // Disable ADC auto-triggering
 
-    FrequencyDetectorControl.AverageLevel = tSumOfSampleValues / NUMBER_OF_SAMPLES;
+    FrequencyDetectorControl.AverageLevel = tSumOfSampleValues / NUMBER_OF_2_COMPRESSED_SAMPLES;
     FrequencyDetectorControl.TriggerLastPosition = tPeriodCountPosition;
     FrequencyDetectorControl.PeriodCount = tPeriodCount;
 
@@ -330,7 +339,7 @@ uint16_t readSignal() {
      * Enable millis timer (0|1) overflow interrupt and compensate for disabled timer, if still disabled.
      * We need 625 microseconds for other computations @1MHz.
      */
-    enableMillisInterrupt(FrequencyDetectorControl.PeriodOfOneReadingMillis);
+    enableMillisInterrupt();
 
     /*
      * check for signal strength
@@ -356,7 +365,7 @@ uint16_t readSignal() {
             FrequencyDetectorControl.FrequencyRaw = ((long) tPeriodCount * FrequencyDetectorControl.FrequencyOfOneSample)
                     / (FrequencyDetectorControl.TriggerLastPosition - FrequencyDetectorControl.TriggerFirstPosition);
 
-#ifdef DEBUG
+#if defined(DEBUG)
             Serial.print(F("Delta U="));
             Serial.print(tDelta);
             Serial.print(F(" TriggerValue="));
@@ -382,7 +391,7 @@ uint16_t readSignal() {
 uint16_t doEqualDistributionPlausi() {
     // Only check if no error was detected before
     if (FrequencyDetectorControl.FrequencyRaw > SIGNAL_FREQUENCY_TOO_HIGH) {
-        uint8_t tPeriodCount = FrequencyDetectorControl.PeriodCount; // 64 for 512, 128 for 1024 samples
+        uint_fast8_t tPeriodCount = FrequencyDetectorControl.PeriodCount; // 64 for 512, 128 for 1024 samples
         /*
          * check if not more than 1/8 of periods are out of range - less than 0.75 or more than 1.5
          */
@@ -392,12 +401,12 @@ uint16_t doEqualDistributionPlausi() {
         uint8_t tPeriodMax = tAveragePeriod + (tAveragePeriod / 2);
         uint8_t tPeriodMin = tAveragePeriod - (tAveragePeriod / 4);
         uint8_t tErrorCount = 0;
-#ifdef TRACE
+#if defined(TRACE)
             Serial.print(tAveragePeriod);
             Serial.print("  ");
             printPeriodLengthArray(&Serial);
 #endif
-        for (uint8_t i = 0; i < tPeriodCount; ++i) {
+        for (uint_fast8_t i = 0; i < tPeriodCount; ++i) {
             if (FrequencyDetectorControl.PeriodLength[i] > tPeriodMax || FrequencyDetectorControl.PeriodLength[i] < tPeriodMin) {
                 tErrorCount++;
             }
@@ -405,14 +414,13 @@ uint16_t doEqualDistributionPlausi() {
         if (tErrorCount > maximumAllowableCountOf(tPeriodCount)) {
             FrequencyDetectorControl.FrequencyRaw = SIGNAL_DISTRIBUTION_PLAUSI_FAILED;
         }
-#ifdef TRACE
+#if defined(TRACE)
             Serial.print(tErrorCount);
             Serial.print(F("  #="));
             Serial.print(tPeriodCount);
             Serial.print(F("  F="));
             Serial.print(FrequencyDetectorControl.FrequencyRaw);
             Serial.println(F("Hz"));
-
 #endif
     }
     return FrequencyDetectorControl.FrequencyRaw;
@@ -421,8 +429,8 @@ uint16_t doEqualDistributionPlausi() {
 /**
  * simple low-pass filter over 15 values
  */
-uint16_t LowPassFilterWith16Values(uint16_t aFilteredValue, uint16_t aValue) {
-    return (((aFilteredValue * 15) + aValue + (1 << 3)) >> 4); // (tValue+8)/16 (+8 to avoid rounding errors)
+uint16_t LowPassFilterWith16Values(int16_t aFilteredValue, int16_t aValue) {
+    return (aFilteredValue + (((aValue - aFilteredValue) + (1 << 3)) >> 4)); // (tValue+8)/16 (+8 to avoid rounding errors)
 }
 
 /**
@@ -517,7 +525,7 @@ void computeDirectAndFilteredMatch(uint16_t aFrequency) {
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
 
-void printPeriodLengthArray(Print * aSerial) {
+void printPeriodLengthArray(Print *aSerial) {
     /*
      * Print frequency or error code
      */
@@ -525,7 +533,7 @@ void printPeriodLengthArray(Print * aSerial) {
         aSerial->print(F("Frequency="));
         aSerial->print(FrequencyDetectorControl.FrequencyRaw);
     } else {
-        aSerial->print(reinterpret_cast<const __FlashStringHelper *>(ErrorStrings[FrequencyDetectorControl.FrequencyRaw]));
+        aSerial->print(reinterpret_cast<const __FlashStringHelper*>(ErrorStrings[FrequencyDetectorControl.FrequencyRaw]));
     }
 
     /*
@@ -535,7 +543,7 @@ void printPeriodLengthArray(Print * aSerial) {
     aSerial->print(FrequencyDetectorControl.PeriodCount);
     aSerial->print(F(" of " STR(SIZE_OF_PERIOD_LENGTH_ARRAY_FOR_PLAUSI) " content="));
 
-    for (uint8_t i = 0; i < FrequencyDetectorControl.PeriodCount; ++i) {
+    for (uint_fast8_t i = 0; i < FrequencyDetectorControl.PeriodCount; ++i) {
         aSerial->print(FrequencyDetectorControl.PeriodLength[i]);
         aSerial->print(",");
     }
@@ -543,18 +551,25 @@ void printPeriodLengthArray(Print * aSerial) {
 }
 
 #if defined(PRINT_INPUT_SIGNAL_TO_PLOTTER)
-void printInputSignalValuesForArduinoPlotter(Print * aSerial) {
+/*
+ * Prints input signal, upper and lower trigger levels and the value of FrequencyRaw (which also codes the errors)
+ * as well as caption (for 1.x IDE plotter)
+ * Requires sReadValueBuffer
+ */
+void printSignalValuesForArduinoPlotter(Print *aSerial) {
+     printInputSignalValuesForArduinoPlotter(aSerial);
+}
+void printInputSignalValuesForArduinoPlotter(Print *aSerial) {
     aSerial->print(F("InputValue TriggerLevel="));
     aSerial->print(FrequencyDetectorControl.TriggerLevel);
     aSerial->print(F("  TriggerLevelLower="));
     aSerial->print(FrequencyDetectorControl.TriggerLevelLower);
     aSerial->print(F(" Frequency="));
-    aSerial->print(FrequencyDetectorControl.FrequencyRaw);
-    aSerial->println(F(" _ -")); // to clear old legend strings
+    aSerial->println(FrequencyDetectorControl.FrequencyRaw);
 
 
-    aSerial->println(0);
-    for (uint16_t i = 0; i < SIGNAL_PLOTTER_BUFFER_SIZE; ++i) {
+    aSerial->println(0); // To signal start of new buffer and to display the 0 line
+    for (unsigned int i = 0; i < SIGNAL_PLOTTER_BUFFER_SIZE; ++i) {
         aSerial->print(sReadValueBuffer[i]);
         aSerial->print(' ');
         aSerial->print(FrequencyDetectorControl.TriggerLevel);
@@ -563,24 +578,30 @@ void printInputSignalValuesForArduinoPlotter(Print * aSerial) {
         aSerial->print(' ');
         aSerial->println(FrequencyDetectorControl.FrequencyRaw);
     }
-    aSerial->println(0);
+    aSerial->println();
 }
 #endif
 
-void printTriggerValues(Print * aSerial) {
+void printTriggerValues(Print *aSerial) {
     aSerial->print(F("TriggerLower="));
     aSerial->print(FrequencyDetectorControl.TriggerLevelLower);
     aSerial->print(" Upper=");
     aSerial->println(FrequencyDetectorControl.TriggerLevel);
 }
 
-void printLegendForArduinoPlotter(Print * aSerial) {
+void printLegendForArduinoPlotter(Print *aSerial){
+    printResultLegendForArduinoPlotter(aSerial);
+}
+void printResultLegendForArduinoPlotter(Print *aSerial) {
     aSerial->println(
             F(
                     "FrequencyMatchDirect*95 MatchDropoutCount*13  MatchLowPassFiltered*2 FrequencyMatchFiltered*100 FrequencyRaw FrequencyFiltered"));
 }
 
-void printDataForArduinoPlotter(Print * aSerial) {
+void printDataForArduinoPlotter(Print *aSerial) {
+    printResultDataForArduinoPlotter(aSerial);
+}
+void printResultDataForArduinoPlotter(Print *aSerial) {
     static uint8_t sConsecutiveErrorCount = 0; // Print only 10 errors, then stop
 
     if (sConsecutiveErrorCount >= 10) {
@@ -590,7 +611,7 @@ void printDataForArduinoPlotter(Print * aSerial) {
         } else {
             // no error any more, start again with print
             sConsecutiveErrorCount = 0;
-            printLegendForArduinoPlotter(aSerial);
+            printResultLegendForArduinoPlotter(aSerial);
         }
     }
     /*
@@ -629,3 +650,4 @@ void printDataForArduinoPlotter(Print * aSerial) {
     aSerial->println();
 }
 
+#endif // _FREQUENCY_DETECTOR_HPP

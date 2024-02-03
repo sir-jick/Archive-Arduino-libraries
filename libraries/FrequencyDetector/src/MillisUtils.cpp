@@ -18,25 +18,35 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  See the GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
- *  along with this program.  If not, see <http://www.gnu.org/licenses/gpl.html>.
+ *  along with this program. If not, see <http://www.gnu.org/licenses/gpl.html>.
  *
  */
 
-#if defined(__AVR__)
 #include <Arduino.h>
-
 #include "MillisUtils.h"
 
-#ifndef cbi
+#if defined(__AVR__)
+
+#if !defined(cbi)
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
 #endif
-#ifndef sbi
+#if !defined(sbi)
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
+
+void delayAndCallFunctionEveryMillis(unsigned int aDelayMillis, void (*aDelayCallback)(void)) {
+    uint32_t tStartMillis = millis();
+    do {
+        if (aDelayCallback != NULL) {
+            aDelayCallback();
+        }
+        delay(1);
+    } while (millis() - tStartMillis <= aDelayMillis);
+}
 
 /*
  *
@@ -52,6 +62,8 @@ void addToMillis(uint16_t aMillisToAdd) {
 void disableMillisInterrupt() {
 #if defined(TIMSK) && defined(TOIE)
     cbi(TIMSK, TOIE);
+#elif defined(TIMSK0) && defined(TOIE0)
+    cbi(TIMSK0, TOIE0); // e.g. ATmega328
 #else
 #error  Timer 0 overflow interrupt not disabled correctly
 #endif
@@ -67,6 +79,12 @@ void enableMillisInterrupt(uint16_t aMillisToAddForCompensation) {
         timer0_millis += aMillisToAddForCompensation;
     }
     sbi(TIMSK, TOIE);
+#elif defined(TIMSK0) && defined(TOIE0)
+    if ((TIMSK0 & _BV(TOIE0)) == 0) {
+        // still disabled -> compensate
+        timer0_millis += aMillisToAddForCompensation;
+    }
+    sbi(TIMSK0, TOIE0); // e.g. ATmega328
 #else
 #error  Timer 0 overflow interrupt not enabled correctly
 #endif
@@ -95,7 +113,7 @@ bool areMillisGone(unsigned int aMillis) {
     return false;
 }
 
-bool areMillisGone(unsigned int aMillis, unsigned long * aLastMillisPtr) {
+bool areMillisGone(unsigned int aMillis, unsigned long *aLastMillisPtr) {
     if (millis() - *aLastMillisPtr >= aMillis) {
         *aLastMillisPtr = millis();
         return true;
@@ -109,31 +127,31 @@ bool areMillisGone(unsigned int aMillis, unsigned long * aLastMillisPtr) {
  * calling a function consisting of just __asm__ volatile ("nop"); gives 0 to 1 micro second
  * Use of Serial. makes it incompatible with BlueDisplay library.
  */
-//void speedTestWith1kCalls(void (*aFunctionUnderTest)(void)) {
-//    uint32_t tMillisStart = millis();
-//    for (uint8_t i = 0; i < 100; ++i) {
-//        // unroll 10 times
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//        aFunctionUnderTest();
-//    }
-//    uint32_t tMillisNeeded = millis() - tMillisStart;
-//    Serial.print(F("Function call takes "));
-//    if (tMillisNeeded > 1000000) {
-//        Serial.print(tMillisNeeded / 1000);
-//        Serial.print(",");
-//        Serial.print((tMillisNeeded % 1000) / 100);
-//        Serial.print(F(" milli"));
-//    } else {
-//        Serial.print(tMillisNeeded);
-//        Serial.print(F(" micro"));
-//    }
-//    Serial.println(F(" seconds."));
-//}
+void speedTestWith1kCalls(Print *aSerial, void (*aFunctionUnderTest)(void)) {
+    uint32_t tMillisStart = millis();
+    for (uint_fast8_t i = 0; i < 100; ++i) {
+        // unroll 10 times
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+        aFunctionUnderTest();
+    }
+    uint32_t tMillisRequired = millis() - tMillisStart;
+    aSerial->print(F("Function call takes "));
+    if (tMillisRequired > 1000000) {
+        Serial.print(tMillisRequired / 1000);
+        Serial.print(",");
+        Serial.print((tMillisRequired % 1000) / 100);
+        Serial.print(F(" milli"));
+    } else {
+        Serial.print(tMillisRequired);
+        Serial.print(F(" micro"));
+    }
+    aSerial->println(F(" seconds."));
+}
