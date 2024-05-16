@@ -10,7 +10,7 @@
  ************************************************************************************
  * MIT License
  *
- * Copyright (c) 2020-2022 Armin Joachimsmeyer
+ * Copyright (c) 2020-2024 Armin Joachimsmeyer
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -56,7 +56,7 @@
  */
 #define MARK_EXCESS_MICROS    20    // Adapt it to your IR receiver module. 20 is recommended for the cheap VS1838 modules.
 
-//#define RECORD_GAP_MICROS 12000 // Default is 5000. Activate it for some LG air conditioner protocols
+//#define RECORD_GAP_MICROS 12000 // Default is 8000. Activate it for some LG air conditioner protocols
 //#define DEBUG // Activate this for lots of lovely debug output from the decoders.
 
 #include <IRremote.hpp>
@@ -88,6 +88,9 @@ void setup() {
     Serial.println();
     Serial.println(F("Because of the verbose output (>200 ms at 115200 baud), repeats are not dumped correctly!"));
     Serial.println();
+    Serial.println(F("If you receive protocol NEC, Samsung or LG, run also ReceiveDemo to check if your actual protocol is eventually NEC2 or SamsungLG, which is determined by the repeats"));
+    Serial.println();
+
 }
 
 //+=============================================================================
@@ -123,8 +126,6 @@ void loop() {
             IrReceiver.compensateAndPrintIRResultAsCArray(&Serial, true); // Output the results as uint16_t source code array of micros
             IrReceiver.printIRResultAsCVariables(&Serial);  // Output address and data as source code variables
             Serial.println();                               // blank line between entries
-            IrReceiver.printIRSendUsage(&Serial);
-            Serial.println();                               // blank line between entries
 
             IrReceiver.compensateAndPrintIRResultAsPronto(&Serial);
 
@@ -147,6 +148,6 @@ void loop() {
 //            Serial.println();                                 // blank line between entries
 //        }
         }
-        IrReceiver.resume();                            // Prepare for the next value
+        IrReceiver.resume();                            // Prepare for the next IR frame
     }
 }

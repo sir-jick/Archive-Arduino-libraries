@@ -20,9 +20,13 @@ Available as [Arduino library "ATtinySerialOut"](https://www.arduinolibraries.in
 
 [![Button Install](https://img.shields.io/badge/Install-brightgreen?logoColor=white&logo=GitBook)](https://www.ardu-badge.com/ATtinySerialOut)
  &nbsp; &nbsp; 
-[![Button Changelog](https://img.shields.io/badge/Changelog-blue?logoColor=white&logo=AzureArtifacts)](https://github.com/ArminJo/ATtinySerialOut#revision-history)
+[![Button Changelog](https://img.shields.io/badge/Changelog-blue?logoColor=white&logo=AzureArtifacts)](https://github.com/ArminJo/ATtinySerialOut?tab=readme-ov-file#revision-history)
 
 </div>
+
+#### If you find this library useful, please give it a star.
+
+&#x1F30E; [Google Translate](https://translate.google.com/translate?sl=en&u=https://github.com/ArminJo/ATtinySerialOut)
 
 <br/>
 
@@ -31,7 +35,7 @@ Available as [Arduino library "ATtinySerialOut"](https://www.arduinolibraries.in
 - Provides Serial.print / println functions for easy software porting.
 - Code size is only 76 bytes@38400 baud or 196 bytes@115200 baud (including first call).
 - Provides additional fast printHex() and printlnHex() functions.
-- Default TX pin is PB2 on a ATtiny85.
+- Default TX pin is PIN_PB2 on an ATtiny85.
 
 <br/>
 
@@ -60,8 +64,27 @@ Available as [Arduino library "ATtinySerialOut"](https://www.arduinolibraries.in
 
     void println(void);
 ```
-
 <br/>
+
+# Example
+```
+#include <Arduino.h>
+
+#if defined(__AVR_ATtiny87__) || defined(__AVR_ATtiny167__)
+#define TX_PIN PIN_PA1 // (package pin 2 / TXD on Tiny167) - can use one of PIN_PA0 to PIN_PA7 here
+#else
+#define TX_PIN PIN_PB2 // (package pin 7 on Tiny85) - can use one of PIN_PB0 to PIN_PB4 (+PIN_PB5) here
+#endif
+
+void setup(void) {
+    initTXPin();
+    Serial.println(F("START " __FILE__ " from " __DATE__ "\r\nUsing library version " VERSION_ATTINY_SERIAL_OUT));
+    writeString("OSCCAL=");
+    writeUnsignedByteHexWithPrefix(OSCCAL);
+}
+void loop() {
+}
+```
 
 # Using the new *.hpp files
 In order to support [compile options](#compile-options--macros-for-this-library) more easily,
@@ -80,8 +103,8 @@ These macros must be defined in your program **before** the line `#include <Tiny
 Modify them by enabling / disabling them, or change the values if applicable.
 
 | Name | Default value | Description |
-|-|-|-|
-| `TX_PIN` | PB2 (PA1 for ATtiny87/167) | The pin to use for transmitting bit bang serial. |
+|-|-:|-|
+| `TX_PIN` | PIN_PB2 (PIN_PA1 for ATtiny87/167) | The pin to use for transmitting bit bang serial. These pin names are valid for ATTinyCore and may be different in other cores. |
 | `TINY_SERIAL_DO_NOT_USE_115200BAUD` | disabled | To force using other baud rates. The rates are **38400 baud at 1 MHz** (which has smaller code size) or **230400 baud at 8/16 MHz**. |
 | `TINY_SERIAL_INHERIT_FROM_PRINT` | disabled | If defined, you can use this class as a replacement for standard Serial as a print class e.g.  for functions like void `prinInfo(Print *aSerial)`. Increases program size. |
 
@@ -104,6 +127,12 @@ You must define TINY_SERIAL_INHERIT_FROM_PRINT before including ATtinySerialOut.
 <br/>
 
 # Revision History
+### Version 2.3.0
+- Support of all ports of ATtiny88 using ATTinyCore numbering scheme.
+
+### Version 2.2.1
+- Usage of ATTinyCore pin numbering also for ATtiny167.
+
 ### Version 2.2.0
 - Usage of ATTinyCore pin numbering scheme e.g. PIN_PB2 and therefore removed `USE_PORTB_FOR_TX_PIN`.
 
@@ -163,5 +192,3 @@ C version of serial code is included for better understanding, but assembler ver
 ```
 avr-g++ -I"C:\arduino\hardware\arduino\avr\cores\arduino" -I"C:\arduino\hardware\arduino\avr\variants\standard" -c -g -w -Os -ffunction-sections -fdata-sections -mmcu=attiny85 -DF_CPU=1000000UL -MMD -o "TinySerialOut.o" "TinySerialOut.cpp"
 ```
-
-#### If you find this library useful, please give it a star.

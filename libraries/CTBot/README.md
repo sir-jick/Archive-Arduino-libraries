@@ -10,6 +10,7 @@ It relies on [ArduinoJson](https://github.com/bblanchon/ArduinoJson) library so,
 You also need to install the [ESP8266 Arduino Core and Library](https://github.com/esp8266/Arduino) or the [ESP32 Arduino Core and Library](https://github.com/espressif/arduino-esp32).
 Don't you know Telegram bots and how to setup one? Check [this](https://core.telegram.org/bots#6-botfather).
 
++ **_ESP8266 don't use anymore the fingerprint for Telegram certificate validation_** 
 + **_Now ArduinoJson version 5 and 6 are supported!_**
 + **_getNewMessage method now is more responsive!!_**
 
@@ -51,6 +52,8 @@ A special thanks go to these people who helped me making this library
 + [x] ArduinoJSON 6 support
 
 ### Changelog
++ 2.1.13 ESP32 compile error
++ 2.1.12 No more fingerprint certificate validation for ESP8266
 + 2.1.11 Fixed an issue on group/chat ID in callback queries
 + 2.1.10 ESP8266 fingerprint key updated
 + 2.1.9  ESP8266 fingerprint key updated

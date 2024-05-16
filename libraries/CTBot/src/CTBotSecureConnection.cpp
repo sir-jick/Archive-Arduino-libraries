@@ -8,6 +8,9 @@
 
 CTBotSecureConnection::CTBotSecureConnection() {
 	m_useDNS = true;
+#if defined(ARDUINO_ARCH_ESP8266) 
+	m_cert.append(m_CAcert);
+#endif
 }
 
 bool CTBotSecureConnection::useDNS(bool value) {
@@ -48,7 +51,8 @@ String CTBotSecureConnection::send(const String& message) {
 	serialLog(FSTR("ESP8266 no https verification"), CTBOT_DEBUG_CONNECTION);
 #elif defined(ARDUINO_ARCH_ESP8266) && CTBOT_USE_FINGERPRINT == 1 // ESP8266 with HTTPS verification
 	BearSSL::WiFiClientSecure telegramServer;
-	telegramServer.setFingerprint(m_fingerprint);
+//	telegramServer.setFingerprint(m_fingerprint);
+	telegramServer.setTrustAnchors(&m_cert);
 	serialLog(FSTR("ESP8266 with https verification"), CTBOT_DEBUG_CONNECTION);
 #elif defined(ARDUINO_ARCH_ESP32) // ESP32
 	WiFiClientSecure telegramServer;
