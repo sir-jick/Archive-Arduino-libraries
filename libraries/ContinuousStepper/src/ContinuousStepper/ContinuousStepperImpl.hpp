@@ -38,6 +38,10 @@ public:
     TTicker::setPeriod(0);
   }
 
+  bool isPowered() const {
+    return status_ != OFF;
+  }
+
   void spin(float_t speed) {
     if (targetSpeed_ == speed)
       return;
@@ -48,6 +52,10 @@ public:
 
   void stop() {
     targetSpeed_ = 0;
+  }
+
+  float_t acceleration() const {
+    return acceleration_;
   }
 
   float_t speed() const {

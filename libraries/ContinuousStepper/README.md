@@ -131,6 +131,9 @@ public:
   // See StepperDriver and FourWireStepper below for details.
   void powerOff();
 
+  // Tells whether the power is on.
+  bool isPowered() const;
+
   // Sets the target speed.
   // The shaft will smoothly accelerate or decelerate to reach the
   // target speed.
@@ -140,6 +143,9 @@ public:
   // The shaft will smoothly decelerate.
   // Call isSpinning() to know when the motion is complete.
   void stop();
+
+  // Gets the acceleration in steps/s².
+  float_t acceleration() const;
 
   // Returns the current speed.
   // During accelerations and decelerations, this value differs from the
