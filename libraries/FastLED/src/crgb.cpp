@@ -6,16 +6,17 @@
 #include "FastLED.h"
 #include "fl/xymap.h"
 
-#include "fl/bilinear_expansion.h"
+#include "fl/upscale.h"
 #include "fl/downscale.h"
 #include "lib8tion/math8.h"
 
 #include "fl/namespace.h"
+#include "fl/int.h"
 
 FASTLED_NAMESPACE_BEGIN
 
-fl::Str CRGB::toString() const {
-    fl::Str out;
+fl::string CRGB::toString() const {
+    fl::string out;
     out.append("CRGB(");
     out.append(int16_t(r));
     out.append(",");
@@ -39,8 +40,8 @@ CRGB CRGB::computeAdjustment(uint8_t scale, const CRGB &colorCorrection,
             if (cc > 0 && ct > 0) {
                 // Optimized for AVR size. This function is only called very
                 // infrequently so size matters more than speed.
-                uint32_t work = (((uint16_t)cc) + 1);
-                work *= (((uint16_t)ct) + 1);
+                fl::u32 work = (((fl::u16)cc) + 1);
+                work *= (((fl::u16)ct) + 1);
                 work *= scale;
                 work /= 0x10000L;
                 adj.raw[i] = work & 0xFF;
@@ -80,9 +81,9 @@ void CRGB::upscale(const CRGB *src, const fl::XYMap &srcXY, CRGB *dst,
     FASTLED_WARN_IF(
         srcXY.getType() != fl::XYMap::kLineByLine,
         "Upscaling only works with a src matrix that is rectangular");
-    uint16_t w = srcXY.getWidth();
-    uint16_t h = srcXY.getHeight();
-    fl::bilinearExpand(src, dst, w, h, dstXY);
+    fl::u16 w = srcXY.getWidth();
+    fl::u16 h = srcXY.getHeight();
+    fl::upscale(src, dst, w, h, dstXY);
 }
 
 CRGB &CRGB::nscale8(uint8_t scaledown) {

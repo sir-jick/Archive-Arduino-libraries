@@ -2,6 +2,11 @@
 
 /*
 This demo is best viewed using the FastLED compiler.
+
+Windows/MacOS binaries: https://github.com/FastLED/FastLED/releases
+
+Python
+
 Install: pip install fastled
 Run: fastled <this sketch directory>
 This will compile and preview the sketch in the browser, and enable
@@ -23,6 +28,7 @@ all the UI elements you see below.
 #include "src/wave.h"
 #include "src/xypaths.h"
 
+#include "fl/memfill.h"
 using namespace fl;
 
 #define HEIGHT 64
@@ -107,7 +113,7 @@ float getAnimationTime(uint32_t now) {
     return pointf + transition.value();
 }
 
-void clearLeds() { memset(leds, 0, NUM_LEDS * sizeof(CRGB)); }
+void clearLeds() { fl::memfill(leds, 0, NUM_LEDS * sizeof(CRGB)); }
 
 void loop() {
     // Your code here
